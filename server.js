@@ -46,6 +46,19 @@ function createApp(opts) {
   return { app, db, dao, close };
 }
 
+// 优雅退出：先停调度器 → srv.close 等既有连接收尾后关库退出 →
+// 3s 兜底强退（systemd Restart 场景不吊死）。抽出为可测函数（注入 exitFn/timeoutMs）。
+function gracefulShutdown(scheduler, srv, close, exitFn, timeoutMs) {
+  const exit = exitFn || ((code) => process.exit(code));
+  const ms = timeoutMs == null ? 3000 : timeoutMs;
+  let done = false;
+  const finish = () => { if (done) return; done = true; close(); exit(0); };
+  scheduler.stop();
+  srv.close(finish);
+  const t = setTimeout(finish, ms);
+  if (t.unref) t.unref();
+}
+
 if (require.main === module) {
   const { app, dao, close } = createApp({});
   // 夜间 job 只在真实进程挂载（测试 require createApp 不带调度器）
@@ -60,12 +73,9 @@ if (require.main === module) {
   for (const sig of ['SIGINT', 'SIGTERM']) {
     process.on(sig, () => {
       console.log('[server] shutdown on', sig);
-      scheduler.stop();
-      srv.close(() => { close(); process.exit(0); });
-      // srv.close 等既有连接收尾，3s 兜底强退（systemd Restart 场景不吊死）
-      setTimeout(() => { close(); process.exit(0); }, 3000).unref();
+      gracefulShutdown(scheduler, srv, close);
     });
   }
 }
 
-module.exports = { createApp };
+module.exports = { createApp, gracefulShutdown };

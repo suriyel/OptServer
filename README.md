@@ -6,6 +6,8 @@
 
 技术形态：Node CJS 单进程，仅 2 个运行时依赖（express + better-sqlite3），零构建（看板为 vanilla ESM + vendored uPlot），数据即单个 `.db` 文件。
 
+**文档**：[docs/](./docs/) — [API 契约](./docs/API.md) · [架构与实现](./docs/ARCHITECTURE.md) · [部署与运维](./docs/DEPLOYMENT.md) · [Release Notes](./docs/RELEASE-NOTES.md)
+
 ## 快速开始
 
 ```bash

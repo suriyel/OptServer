@@ -174,3 +174,97 @@ test('HTTP 路由：>500 批与非数组 → 400；正常批 → {ok,accepted,du
   assert.strictEqual(ok.json.accepted, 1);
   assert.strictEqual(ok.json.dup, 0);
 });
+
+test('空批 → accepted 0（不报错，spool 空刷）', (t) => {
+  const { dao } = openTempDb(t);
+  assert.deepStrictEqual(ingestBatch(dao, [], NOW), { accepted: 0, dup: 0, rejected: 0 });
+});
+
+test('恰好 500 批放行（边界，>500 才拒）', async (t) => {
+  const { dao } = openTempDb(t);
+  const app = express();
+  app.use(express.json({ limit: '2mb' }));
+  app.use('/v1', createIngestRouter(dao, { nowFn: () => NOW }));
+  const { baseUrl } = await listenApp(t, app);
+  const batch = { events: Array.from({ length: 500 }, (_, i) => makeEvent({ eventId: 'e' + i })) };
+  const r = await postJson(baseUrl, '/v1/events', batch);
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual(r.json.accepted, 500);
+});
+
+test('同批内重复 eventId → 第二条 dup（同事务幂等门）', (t) => {
+  const { db, dao } = openTempDb(t);
+  const r = ingestBatch(dao, [
+    makeEvent({ eventId: 'same', type: 'session_start' }),
+    makeEvent({ eventId: 'same', type: 'session_start' }),
+  ], NOW);
+  assert.deepStrictEqual(r, { accepted: 1, dup: 1, rejected: 0 });
+  assert.strictEqual(dailyRow(db, localDay(NOW), 'inst-1').sessions, 1); // 不双计
+});
+
+test('bp_run_end 非法 status → 三 runs 列均 0，run_active_ms 仍累加', (t) => {
+  const { db, dao } = openTempDb(t);
+  ingestBatch(dao, [
+    makeEvent({ type: 'bp_run_end', payload: { status: 'weird', activeMs: 7000 } }),
+  ], NOW);
+  const row = dailyRow(db, localDay(NOW), 'inst-1');
+  assert.strictEqual(row.runs_done + row.runs_failed + row.runs_halted, 0);
+  assert.strictEqual(row.run_active_ms, 7000);
+});
+
+test('bp_run_start：只落 events，不 bump daily（run 计数以终态为准）', (t) => {
+  const { db, dao } = openTempDb(t);
+  ingestBatch(dao, [
+    makeEvent({ type: 'bp_run_start', payload: { blueprintId: 'bp1', runId: 'r1', tool: 'claude' } }),
+  ], NOW);
+  assert.strictEqual(db.prepare('SELECT COUNT(*) c FROM events').get().c, 1);
+  assert.strictEqual(dailyRow(db, localDay(NOW), 'inst-1'), undefined); // 无聚合行
+  assert.strictEqual(db.prepare('SELECT COUNT(*) c FROM daily_tool').get().c, 0);
+});
+
+test('instance_online：刷 installs.live_sessions + 建当日行（计数 0）', (t) => {
+  const { db, dao } = openTempDb(t);
+  ingestBatch(dao, [
+    makeEvent({ type: 'instance_online', payload: { port: 5173, liveSessions: 5 } }),
+  ], NOW);
+  assert.strictEqual(db.prepare('SELECT COUNT(*) c FROM events').get().c, 1); // online 落 events
+  assert.strictEqual(db.prepare('SELECT live_sessions v FROM installs').get().v, 5);
+  const row = dailyRow(db, localDay(NOW), 'inst-1');
+  assert.strictEqual(row.sessions, 0); // 建行但计数 0（DAU 兜底）
+  assert.strictEqual(row.heartbeats, 0);
+});
+
+test('超长字段被拒：eventId>128 / type>64 / user>256', (t) => {
+  const { dao } = openTempDb(t);
+  const r = ingestBatch(dao, [
+    makeEvent({ eventId: 'x'.repeat(129) }),
+    makeEvent({ type: 'y'.repeat(65) }),
+    makeEvent({ user: 'z'.repeat(257) }),
+    makeEvent({}), // 一条合法
+  ], NOW);
+  assert.deepStrictEqual(r, { accepted: 1, dup: 0, rejected: 3 });
+});
+
+test('schemaVersion 严格 === 1：字符串 "1" 被拒', (t) => {
+  const { dao } = openTempDb(t);
+  const r = ingestBatch(dao, [makeEvent({ schemaVersion: '1' })], NOW);
+  assert.deepStrictEqual(r, { accepted: 0, dup: 0, rejected: 1 });
+});
+
+test('payload 缺失（undefined）不崩，events.payload 落 {}', (t) => {
+  const { db, dao } = openTempDb(t);
+  const r = ingestBatch(dao, [makeEvent({ type: 'session_start', payload: undefined })], NOW);
+  assert.strictEqual(r.accepted, 1);
+  assert.strictEqual(db.prepare('SELECT payload FROM events').get().payload, '{}');
+});
+
+test('路由层 ingestBatch 抛异常 → 500 { ok:false }（fail-safe，不裸崩）', async (t) => {
+  const boomDao = { txIngest() { throw new Error('boom'); } };
+  const app = express();
+  app.use(express.json());
+  app.use('/v1', createIngestRouter(boomDao, { nowFn: () => NOW }));
+  const { baseUrl } = await listenApp(t, app);
+  const r = await postJson(baseUrl, '/v1/events', { events: [makeEvent({})] });
+  assert.strictEqual(r.status, 500);
+  assert.strictEqual(r.json.ok, false);
+});
