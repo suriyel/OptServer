@@ -9,6 +9,7 @@
 | [API.md](./API.md) | 客户端 / 看板开发者 | 事件信封、上报接口、7 个查询端点、错误响应——**双端唯一契约** |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | 维护者 | 模块划分、存储 schema、索引设计、三个易错点解法、数据生命周期 |
 | [DEPLOYMENT.md](./DEPLOYMENT.md) | 运维 | 环境、env、systemd、日志、健康检查、备份、故障排查、PG 迁移条件 |
+| [CLIENT-HANDOFF.md](./CLIENT-HANDOFF.md) | 采集端(harness)开发者 | 客户端 server-telemetry 实现 & 联调清单：传输契约、事件/新字段来源、挂接点、开关、可靠性、联调步骤、验收 |
 | [RELEASE-NOTES.md](./RELEASE-NOTES.md) | 全体 | 各版本变更记录 |
 
 ## 一分钟速览
