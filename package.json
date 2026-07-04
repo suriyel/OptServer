@@ -1,6 +1,6 @@
 {
   "name": "cancong-ops",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "蚕丛 harness 运营统计服务器：事件 ingest + SQLite 存储聚合 + stats API + 自建看板",
   "engines": {

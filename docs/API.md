@@ -62,18 +62,28 @@
 
 ### 事件类型与 payload
 
+> **术语**：本文档中「工作流」= 内部字段 `blueprintId`（事件类型 `bp_run_*` 沿用既有契约名，不改）。
+
 | type | 触发点 | payload | 聚合去向 |
 |------|--------|---------|---------|
 | `instance_online` | 实例上线 | `{ port, liveSessions }` | 刷 installs.live_sessions；建当日行(计数 0) |
 | `instance_heartbeat` | 定时 5min | `{ liveSessions }` | **不落 events**；hb_seen 去重后 `daily_user.heartbeats+1` |
 | `session_start` | 会话开始 | `{ tool, cwdHash }` | `daily_user.sessions+1`、`daily_tool.sessions+1` |
-| `session_end` | 会话结束 | `{ tool, durationMs, exitCode }` | `daily_user.session_ms += durationMs`、`daily_tool.session_ms += durationMs` |
-| `bp_run_start` | 蓝图 run 新建 | `{ blueprintId, runId, tool }` | **只落 events 不聚合**(run 计数以终态为准，避免跨日双计) |
-| `bp_run_end` | 蓝图 run 终态 | `{ blueprintId, runId, status, activeMs, haltReason? }` | 按 `status`(done/failed/halted) 落 `runs_*`；`run_active_ms += activeMs` |
-| `failure_event` | 异常信号 | `{ source, kind, reason, tool, runId? }` | `daily_user.failures+1`、`daily_fail(day,version,kind)+1` |
+| `session_end` | 会话结束 | `{ tool, durationMs, exitCode, inputTokens, outputTokens }` | `session_ms += durationMs`；**`daily_user.in/out_tokens += tokens`(token 总量权威)** |
+| `bp_run_start` | 工作流 run 新建 | `{ blueprintId, runId, tool }` | **只落 events 不聚合**(run 计数以终态为准，避免跨日双计) |
+| `bp_run_end` | 工作流 run 终态 | `{ blueprintId, runId, status, activeMs, haltReason?, interruptions, inputTokens, outputTokens }` | daily_user 按 `status` 落 `runs_*` + `run_active_ms`；**`daily_blueprint` 落 runs/active_ms/interruptions/token(工作流归因)** |
+| `failure_event` | 异常信号 | `{ source, kind, reason, tool, runId?, blueprintId? }` | `daily_user.failures+1`、`daily_fail(day,version,kind)+1`；**带 `blueprintId` 则 `daily_blueprint.failures+1`** |
+
+**v0.2.0 新增 payload 字段**（客户端上报；缺失按 0 / 不归因，服务器 graceful）：
+- `session_end.inputTokens` / `outputTokens`（int ≥0）：**会话级 token = 总量权威**，进 `daily_user`（概览/趋势/Top 用户）。
+- `bp_run_end.inputTokens` / `outputTokens`（int ≥0）：**run 级 token = 工作流归因子集**，进 `daily_blueprint`（工作流页）。
+- `bp_run_end.interruptions`（int ≥0）：运行中用户插话/打断次数（「用户中断」）。
+- `failure_event.blueprintId`（string，可选）：把失败归因到具体工作流；缺失则仅计入总量失败，不归因工作流。
+
+> **Token 防重复计数**：会话含多个 run，run token 是会话 token 子集。故会话 token 与 run token 分别进 `daily_user` 与 `daily_blueprint` 两个视图，各自求和、互不重复（`sum(工作流 token) ≤ sum(总量 token)`，非 run 活动不计入工作流）。
 
 - **未知 type**(v2 前向兼容)：结构合格即落 events 原始表、**不做任何聚合**、计入 `accepted`。旧服务器遇新客户端不丢数据。
-- **数值净化**：`durationMs`/`activeMs`/`liveSessions` 仅当为正有限数才计入，否则按 0。
+- **数值净化**：`durationMs`/`activeMs`/`liveSessions`/`inputTokens`/`outputTokens`/`interruptions` 仅当为正有限数才计入，否则按 0。
 - **隐私约定(v1)**：不上传 cwd 明文、prompt、会话内容；`cwdHash` 为 sha256 前缀，仅用于项目数统计。
 
 ---
@@ -102,7 +112,9 @@ GET /healthz → 200 { "ok": true }
   "sessionsToday": 27,
   "sessionMsToday": 46090214,
   "runsToday": 19,             // done+failed+halted
-  "failuresToday": 7
+  "failuresToday": 7,
+  "inTokensToday": 128340,     // token 总量(来自 session_end)
+  "outTokensToday": 31200
 } }
 ```
 
@@ -110,7 +122,8 @@ GET /healthz → 200 { "ok": true }
 逐日 DAU/WAU、会话数与时长。WAU 为该日往前 7 天滑窗内活跃用户并集。
 ```jsonc
 { "ok": true, "data": { "from": "...", "to": "...", "days": [
-  { "day": "2026-07-01", "dau": 18, "wau": 33, "sessions": 40, "sessionMs": 3600000 }
+  { "day": "2026-07-01", "dau": 18, "wau": 33, "sessions": 40, "sessionMs": 3600000,
+    "inTokens": 220400, "outTokens": 51200 }
 ] } }
 ```
 
@@ -158,6 +171,27 @@ GET /healthz → 200 { "ok": true }
 ```
 > 注意：`kinds`/`byVersion` 走永久聚合表，`recent` 读 events 原始表——受 90 天保留窗约束。
 
+### `GET /v1/stats/users/top?from&to&metric&limit`
+高频用户 Top N。`metric` ∈ `sessions｜runs｜failures｜sessionMs｜tokens`(默认 `sessions`；非法值 `400 bad metric`)；`limit` 默认 10、上限 100。服务器按 `metric` 排序返回，前端切换 metric 即重查。
+```jsonc
+{ "ok": true, "data": { "from": "...", "to": "...", "metric": "tokens", "users": [
+  { "user": "user025", "host": "HOST-025", "sessions": 39, "runs": 23, "failures": 6,
+    "sessionMs": 80527678, "inTokens": 900453, "outTokens": 173400, "tokens": 1073853 }
+] } }
+```
+
+### `GET /v1/stats/blueprints?from&to`
+各工作流(内部 blueprintId)的运行/失败/E2E/中断/token，按 run 总数倒序。
+```jsonc
+{ "ok": true, "data": { "from": "...", "to": "...", "blueprints": [
+  { "blueprintId": "fix-tests", "runsDone": 82, "runsFailed": 26, "runsHalted": 23, "runs": 131,
+    "failures": 39, "activeMs": 37766873, "interruptions": 136,
+    "inTokens": 1294296, "outTokens": 262175, "tokens": 1556471 }
+] } }
+```
+- `runs` = done+failed+halted；`failures` = 归因到本工作流的 `failure_event` 数(带 blueprintId)。
+- `activeMs` 为「E2E 活跃时长」口径(累加 bp_run_end.activeMs)；`interruptions` 为运行中用户中断次数。
+
 ### `GET /v1/installs`
 实例明细(按 last_seen 倒序)。
 ```jsonc
@@ -176,6 +210,7 @@ GET /healthz → 200 { "ok": true }
 |--------|------|------|
 | `400` | 批非数组 / >500 条 | `{ ok:false, error:"bad batch" }` |
 | `400` | from/to 非法、倒置、跨度 >400 天 | `{ ok:false, error:"bad range" }` |
+| `400` | `/stats/users/top` metric 非白名单 | `{ ok:false, error:"bad metric" }` |
 | `413` | body 超 1 MB | `{ ok:false, error:"bad request" }` |
 | `404` | `/v1` 下未知路由 | `{ ok:false, error:"not found" }` |
 | `500` | ingest/stats 内部异常 | `{ ok:false, error:"..." }` |

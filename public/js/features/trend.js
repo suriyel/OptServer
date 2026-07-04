@@ -14,7 +14,8 @@ export function init(el) {
   el.innerHTML = `
     <div class="panel"><h3>活跃用户（DAU / WAU）</h3><div class="chart" id="tr-dau"></div></div>
     <div class="panel"><h3>会话数与总时长</h3><div class="chart" id="tr-sessions"></div></div>
-    <div class="panel"><h3>蓝图 run 终态分布</h3><div class="chart" id="tr-runs"></div></div>
+    <div class="panel"><h3>Token 消耗（输入 / 输出）</h3><div class="chart" id="tr-tokens"></div></div>
+    <div class="panel"><h3>工作流 run 终态分布</h3><div class="chart" id="tr-runs"></div></div>
     <div class="error-box" id="tr-error"></div>`;
 }
 
@@ -39,6 +40,10 @@ export async function refresh() {
     charts.push(lineChart(root.querySelector('#tr-sessions'), dayLabels, [
       { label: '会话数', color: COLORS.green, values: dau.days.map((x) => x.sessions) },
       { label: '总时长', color: COLORS.purple, axis: 2, values: dau.days.map((x) => x.sessionMs), fmt: fmtDuration },
+    ]));
+    charts.push(lineChart(root.querySelector('#tr-tokens'), dayLabels, [
+      { label: '输入 Token', color: COLORS.blue, values: dau.days.map((x) => x.inTokens || 0) },
+      { label: '输出 Token', color: COLORS.amber, values: dau.days.map((x) => x.outTokens || 0) },
     ]));
     charts.push(stackedBars(root.querySelector('#tr-runs'), runs.days.map((x) => x.day), [
       { label: 'done', color: COLORS.green, values: runs.days.map((x) => x.done) },

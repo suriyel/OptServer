@@ -85,10 +85,16 @@
 | `instance_online` | server listen 成功 | `{ port, liveSessions: 0 }` |
 | `instance_heartbeat` | 定时 5min ± 随机抖动 | `{ liveSessions }`（**不落 events 原始表**，见 §7） |
 | `session_start` | PTY spawn 成功 | `{ tool, cwdHash }` |
-| `session_end` | PTY onExit | `{ tool, cwdHash, durationMs, exitCode }` |
+| `session_end` | PTY onExit | `{ tool, cwdHash, durationMs, exitCode, inputTokens, outputTokens }` |
 | `bp_run_start` | launchRun 新建 run | `{ blueprintId, runId, tool }` |
-| `bp_run_end` | run 终态（done/failed/halted） | `{ blueprintId, runId, status, activeMs, haltReason? }` |
-| `failure_event` | 异常信号（见 §6.3） | `{ source, kind, reason, tool, runId? }` |
+| `bp_run_end` | run 终态（done/failed/halted） | `{ blueprintId, runId, status, activeMs, haltReason?, interruptions, inputTokens, outputTokens }` |
+| `failure_event` | 异常信号（见 §6.3） | `{ source, kind, reason, tool, runId?, blueprintId? }` |
+
+**v0.2.0 新增 payload 字段**（工作流/用户/Token 统计；客户端上报，缺失按 0 / 不归因）：
+- `session_end.inputTokens/outputTokens`：会话级 token，作 token **总量权威**。
+- `bp_run_end.inputTokens/outputTokens`：run 级 token，作**工作流归因子集**（与会话级分别聚合，防双计）。
+- `bp_run_end.interruptions`：运行中用户插话/打断次数（「用户中断」）。
+- `failure_event.blueprintId`：把失败归因到具体工作流（缺失则仅计入总量失败）。
 
 **隐私约定（v1）**：不上传 cwd 明文、prompt、会话内容、代码。`cwdHash = sha256(cwd 规范化).slice(0,12)` 仅用于"项目数"统计。blueprintId 为内部工作流名，可上传（有"哪个工作流最常用"的统计价值）。
 

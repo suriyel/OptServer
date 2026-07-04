@@ -62,12 +62,13 @@ function renderRecent(rows) {
   const box = root.querySelector('#fa-recent');
   if (!rows.length) { box.innerHTML = '<div class="empty">范围内无失败事件 🎉</div>'; return; }
   box.innerHTML = `<table><thead><tr>
-      <th>时间</th><th>用户</th><th>来源</th><th>类型</th><th>说明</th><th>版本</th>
+      <th>时间</th><th>用户</th><th>工作流</th><th>来源</th><th>类型</th><th>说明</th><th>版本</th>
     </tr></thead><tbody>` + rows.map((r) => {
     const p = r.payload || {};
     return `<tr data-event-id="${escapeHtml(r.eventId)}">
       <td>${fmtLocalFromIso(r.serverTs)}</td>
       <td>${escapeHtml(r.user)}@${escapeHtml(r.host)}</td>
+      <td>${escapeHtml(p.blueprintId || '—')}</td>
       <td>${escapeHtml(p.source || '')}</td>
       <td>${escapeHtml(p.kind || '')}</td>
       <td title="${escapeHtml(p.reason || '')}">${escapeHtml(String(p.reason || '').slice(0, 60))}</td>

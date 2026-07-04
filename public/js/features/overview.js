@@ -50,7 +50,8 @@ function renderCards(ov) {
     + card('本周活跃用户', fmtInt(ov.activeUsersWeek))
     + card('今日会话', fmtInt(ov.sessionsToday))
     + card('今日会话时长', fmtDuration(ov.sessionMsToday))
-    + card('今日 run / 失败', fmtInt(ov.runsToday) + ' / ' + fmtInt(ov.failuresToday));
+    + card('今日 run / 失败', fmtInt(ov.runsToday) + ' / ' + fmtInt(ov.failuresToday))
+    + card('今日 Token（入/出）', fmtInt(ov.inTokensToday || 0) + ' / ' + fmtInt(ov.outTokensToday || 0));
 }
 
 function renderVersions(versions) {

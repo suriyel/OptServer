@@ -4,11 +4,13 @@
 import { onRangeChange } from './core/range.js';
 import * as overview from './features/overview.js';
 import * as trend from './features/trend.js';
+import * as blueprints from './features/blueprints.js';
+import * as users from './features/users.js';
 import * as failures from './features/failures.js';
 import * as installs from './features/installs.js';
 
 const REFRESH_MS = 60 * 1000;
-const PAGES = { overview, trend, failures, installs };
+const PAGES = { overview, trend, blueprints, users, failures, installs };
 /** @type {Record<string, boolean>} */
 const inited = {};
 let active = '';

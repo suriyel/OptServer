@@ -147,3 +147,70 @@ test('范围解析：非法/倒置 → 400；parseRange 纯函数边界', async 
   assert.deepStrictEqual(parseRange({}, NOW), { from: shiftDay(localDay(NOW), -29), to: localDay(NOW) });
   assert.strictEqual(parseRange({ from: '2026-7-1' }, NOW), null); // 必须补零
 });
+
+// ---- v0.2.0：token / 用户 Top / 工作流 ----
+
+const from = localDay(D1), to = localDay(NOW);
+
+// A：2 会话(token 1000/300 + 500/100)、1 done run；B：1 会话、1 failed run
+function seedV2(dao) {
+  ingestBatch(dao, [
+    makeEvent({ ...A, type: 'session_end', payload: { tool: 'claude', durationMs: 10000, inputTokens: 1000, outputTokens: 300 } }),
+    makeEvent({ ...A, type: 'session_end', payload: { tool: 'claude', durationMs: 5000, inputTokens: 500, outputTokens: 100 } }),
+    makeEvent({ ...A, type: 'bp_run_end', payload: { blueprintId: 'ship-it', status: 'done', activeMs: 8000, interruptions: 2, inputTokens: 700, outputTokens: 90 } }),
+  ], D2);
+  ingestBatch(dao, [
+    makeEvent({ ...B, type: 'session_end', payload: { tool: 'codex', durationMs: 2000, inputTokens: 200, outputTokens: 50 } }),
+    makeEvent({ ...B, type: 'bp_run_end', payload: { blueprintId: 'ship-it', status: 'failed', activeMs: 1000, interruptions: 5 } }),
+    makeEvent({ ...B, type: 'failure_event', payload: { kind: 'oom', blueprintId: 'ship-it' } }),
+  ], NOW);
+}
+
+test('overview / dau：token 字段（总量来自 session_end）', async (t) => {
+  const h = await makeApp(t, { nowFn: () => NOW });
+  seedV2(h.dao);
+  const ov = (await getJson(h.baseUrl, '/v1/stats/overview')).json.data;
+  assert.strictEqual(ov.inTokensToday, 200);   // 今日仅 B 的 session_end
+  assert.strictEqual(ov.outTokensToday, 50);
+  const dau = (await getJson(h.baseUrl, `/v1/stats/dau?from=${from}&to=${to}`)).json.data;
+  const d2 = dau.days.find((x) => x.day === localDay(D2));
+  assert.strictEqual(d2.inTokens, 1500);        // A 两会话 1000+500
+  assert.strictEqual(d2.outTokens, 400);
+});
+
+test('users/top：按 metric 排序 + limit + 非法 metric 400', async (t) => {
+  const h = await makeApp(t, { nowFn: () => NOW });
+  seedV2(h.dao);
+  // 按 token 排序：A(1900=1500in+400out) > B(250)
+  const byTok = (await getJson(h.baseUrl, `/v1/stats/users/top?from=${from}&to=${to}&metric=tokens`)).json.data;
+  assert.strictEqual(byTok.metric, 'tokens');
+  assert.strictEqual(byTok.users[0].user, 'userA');
+  assert.strictEqual(byTok.users[0].tokens, 1900);
+  assert.strictEqual(byTok.users[1].user, 'userB');
+  // limit=1 只回 1 条
+  const lim = (await getJson(h.baseUrl, `/v1/stats/users/top?from=${from}&to=${to}&metric=sessions&limit=1`)).json.data;
+  assert.strictEqual(lim.users.length, 1);
+  // 非法 metric → 400
+  assert.strictEqual((await getJson(h.baseUrl, `/v1/stats/users/top?metric=drop`)).status, 400);
+});
+
+test('blueprints：runs/失败归因/activeMs/中断/token', async (t) => {
+  const h = await makeApp(t, { nowFn: () => NOW });
+  seedV2(h.dao);
+  const { json } = await getJson(h.baseUrl, `/v1/stats/blueprints?from=${from}&to=${to}`);
+  const bp = json.data.blueprints.find((x) => x.blueprintId === 'ship-it');
+  assert.strictEqual(bp.runsDone, 1);
+  assert.strictEqual(bp.runsFailed, 1);
+  assert.strictEqual(bp.runs, 2);
+  assert.strictEqual(bp.failures, 1);        // failure_event 带 blueprintId 归因
+  assert.strictEqual(bp.activeMs, 9000);     // 8000 + 1000
+  assert.strictEqual(bp.interruptions, 7);   // 2 + 5
+  assert.strictEqual(bp.tokens, 790);        // 仅 done run 带 token(700+90)
+});
+
+test('failures recent：带 blueprintId（失败对应工作流）', async (t) => {
+  const h = await makeApp(t, { nowFn: () => NOW });
+  seedV2(h.dao);
+  const { json } = await getJson(h.baseUrl, `/v1/stats/failures?from=${from}&to=${to}`);
+  assert.strictEqual(json.data.recent[0].payload.blueprintId, 'ship-it');
+});

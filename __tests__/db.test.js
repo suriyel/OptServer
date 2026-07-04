@@ -99,3 +99,41 @@ test('insertEvent：INSERT OR IGNORE 幂等（changes 0/1）', (t) => {
   assert.strictEqual(dao.insertEvent(row), 1);
   assert.strictEqual(dao.insertEvent(row), 0); // 重发不落第二行
 });
+
+test('schema：daily_user 有 token 列、daily_blueprint 表存在', (t) => {
+  const { db } = openTempDb(t);
+  const userCols = db.prepare('PRAGMA table_info(daily_user)').all().map((c) => c.name);
+  assert.ok(userCols.includes('in_tokens'));
+  assert.ok(userCols.includes('out_tokens'));
+  const bpCols = db.prepare('PRAGMA table_info(daily_blueprint)').all().map((c) => c.name);
+  assert.deepStrictEqual(bpCols, ['day', 'blueprint_id', 'runs_done', 'runs_failed', 'runs_halted',
+    'failures', 'active_ms', 'interruptions', 'in_tokens', 'out_tokens']);
+});
+
+test('bumpDaily：token 列累加', (t) => {
+  const { db, dao } = openTempDb(t);
+  dao.bumpDaily('2026-07-02', 'i1', 'u1', 'h1', { inTokens: 100, outTokens: 30 });
+  dao.bumpDaily('2026-07-02', 'i1', 'u1', 'h1', { inTokens: 50, outTokens: 20 });
+  const row = db.prepare('SELECT in_tokens, out_tokens FROM daily_user').get();
+  assert.strictEqual(row.in_tokens, 150);
+  assert.strictEqual(row.out_tokens, 50);
+});
+
+test('bumpDailyBlueprint：全 0 建行；重复 bump 各列累加', (t) => {
+  const { db, dao } = openTempDb(t);
+  dao.bumpDailyBlueprint('2026-07-02', 'bp-1', {}); // 全 0：仅确保行存在
+  let row = db.prepare('SELECT * FROM daily_blueprint').get();
+  assert.strictEqual(row.runs_done, 0);
+  assert.strictEqual(row.interruptions, 0);
+
+  dao.bumpDailyBlueprint('2026-07-02', 'bp-1', { runsDone: 1, activeMs: 5000, interruptions: 2, inTokens: 10, outTokens: 3 });
+  dao.bumpDailyBlueprint('2026-07-02', 'bp-1', { runsFailed: 1, activeMs: 1000, interruptions: 1 });
+  row = db.prepare('SELECT * FROM daily_blueprint').get();
+  assert.strictEqual(row.runs_done, 1);
+  assert.strictEqual(row.runs_failed, 1);
+  assert.strictEqual(row.active_ms, 6000);
+  assert.strictEqual(row.interruptions, 3);
+  assert.strictEqual(row.in_tokens, 10);
+  assert.strictEqual(row.out_tokens, 3);
+  assert.strictEqual(db.prepare('SELECT COUNT(*) c FROM daily_blueprint').get().c, 1);
+});

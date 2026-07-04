@@ -4,6 +4,31 @@
 
 ---
 
+## v0.2.0 — 2026-07-04
+
+工作流/用户/Token 统计扩展。新增两个看板页与两个查询端点，覆盖高频用户、Token 消耗、工作流使用与失败归因。
+
+### 新增能力
+- **工作流页**：各工作流(内部 blueprintId)的运行数、终态分布、失败归因、E2E 活跃时长(activeMs)、用户中断次数、Token 消耗，表头可排序。
+- **用户页**：Top 10 高频用户，支持按会话数/run 数/Token/活跃时长/失败数切换排序。
+- **Token 统计**：概览页今日 Token 卡片、趋势页输入/输出 Token 曲线、用户与工作流维度的 Token 归因。
+- **失败对应工作流**：失败页最近失败表新增「工作流」列；`failure_event` 带 `blueprintId` 时归因到具体工作流。
+- 新端点 `GET /v1/stats/users/top`(metric 白名单排序)、`GET /v1/stats/blueprints`；`overview`/`dau` 增 Token 字段。
+
+### 契约扩展(客户端需上报的 payload 字段)
+- `session_end`：`inputTokens`/`outputTokens`(token 总量权威)。
+- `bp_run_end`：`inputTokens`/`outputTokens`(工作流归因)、`interruptions`(用户中断)。
+- `failure_event`：`blueprintId`(失败归因，可选)。
+- 未上报前，相关指标 graceful 显示为 0/空。
+
+### 关键实现要点
+- **Token 防重复计数**：会话 token(→`daily_user`) 与 run token(→`daily_blueprint`) 分别聚合、互不重复求和(run token 是会话 token 子集)。见 [ARCHITECTURE.md §3](./ARCHITECTURE.md#token-防重复计数关键设计)。
+- **术语**：对外统一「工作流」，内部沿用既有 `blueprint`/`blueprintId`/`bp_run_*` 契约，不改名。
+- 新增 `daily_blueprint` 聚合表 + `daily_user` 两个 token 列，与 daily_tool/daily_fail 同法(增量 upsert + 夜间可重算)。
+- **质量保障**：63 个 `node:test` 用例(含 token 防双计、失败→工作流归因、metric 白名单)；`npm run bench` 700 万行两新端点毫秒级(users/top 21ms、blueprints 0.4ms)；看板经浏览器实测两新页 + metric 切换通过。
+
+---
+
 ## v0.1.0 — 2026-07-04
 
 蚕丛 harness 运营统计服务器首个版本。交付里程碑 **M2(后端)+ M4(看板)**，可独立部署、灌真实数据、看板可视。

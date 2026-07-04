@@ -53,6 +53,31 @@ test('补算复原事件派生列，heartbeats 保持原值（坑 C）', (t) => 
   assert.strictEqual(fail.kind, 'x');
 });
 
+test('补算复原 token 与工作流维度（daily_user tokens / daily_blueprint）', (t) => {
+  const { db, dao } = openTempDb(t);
+  ingestBatch(dao, [
+    makeEvent({ type: 'session_end', payload: { tool: 'claude', durationMs: 1000, inputTokens: 800, outputTokens: 200 } }),
+    makeEvent({ type: 'bp_run_end', payload: { blueprintId: 'bp-A', status: 'done', activeMs: 4000, interruptions: 3, inputTokens: 600, outputTokens: 50 } }),
+    makeEvent({ type: 'failure_event', payload: { kind: 'oom', blueprintId: 'bp-A' } }),
+  ], NOW);
+  // 人为改错
+  db.prepare('UPDATE daily_user SET in_tokens = 1, out_tokens = 1').run();
+  db.prepare('UPDATE daily_blueprint SET runs_done = 9, failures = 9, active_ms = 1, interruptions = 1, in_tokens = 1, out_tokens = 1').run();
+
+  runNightlyJob(dao, { nowFn });
+
+  const u = db.prepare('SELECT in_tokens, out_tokens FROM daily_user').get();
+  assert.strictEqual(u.in_tokens, 800);       // session_end token 复原
+  assert.strictEqual(u.out_tokens, 200);
+  const b = db.prepare('SELECT * FROM daily_blueprint WHERE blueprint_id = ?').get('bp-A');
+  assert.strictEqual(b.runs_done, 1);
+  assert.strictEqual(b.failures, 1);          // 带 blueprintId 的 failure_event 归因复原
+  assert.strictEqual(b.active_ms, 4000);
+  assert.strictEqual(b.interruptions, 3);
+  assert.strictEqual(b.in_tokens, 600);       // run 级 token 复原
+  assert.strictEqual(b.out_tokens, 50);
+});
+
 test('缺行补建：有 events 无 daily 行 → 补出（heartbeats=0）', (t) => {
   const { db, dao } = openTempDb(t);
   // 绕过 ingest 直插原始事件（模拟历史漂移出的缺行）

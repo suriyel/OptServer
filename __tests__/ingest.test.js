@@ -268,3 +268,91 @@ test('路由层 ingestBatch 抛异常 → 500 { ok:false }（fail-safe，不裸�
   assert.strictEqual(r.status, 500);
   assert.strictEqual(r.json.ok, false);
 });
+
+// ---- v0.2.0：token / 工作流归因 / 用户中断 ----
+
+function bpRow(db, day, bp) {
+  return db.prepare('SELECT * FROM daily_blueprint WHERE day = ? AND blueprint_id = ?').get(day, bp);
+}
+
+test('session_end token → daily_user.in/out_tokens（总量权威）', (t) => {
+  const { db, dao } = openTempDb(t);
+  ingestBatch(dao, [
+    makeEvent({ type: 'session_end', payload: { tool: 'claude', durationMs: 1000, inputTokens: 1200, outputTokens: 340 } }),
+  ], NOW);
+  const row = dailyRow(db, localDay(NOW), 'inst-1');
+  assert.strictEqual(row.in_tokens, 1200);
+  assert.strictEqual(row.out_tokens, 340);
+});
+
+test('bp_run_end token 只进 daily_blueprint，不进 daily_user（防双计核心）', (t) => {
+  const { db, dao } = openTempDb(t);
+  ingestBatch(dao, [
+    makeEvent({ type: 'bp_run_end', payload: { blueprintId: 'bp-A', runId: 'r1', status: 'done',
+      activeMs: 5000, interruptions: 2, inputTokens: 900, outputTokens: 100 } }),
+  ], NOW);
+  // daily_user：run 计数与 activeMs 照常，但 token 保持 0（run token 不计入总量）
+  const u = dailyRow(db, localDay(NOW), 'inst-1');
+  assert.strictEqual(u.runs_done, 1);
+  assert.strictEqual(u.run_active_ms, 5000);
+  assert.strictEqual(u.in_tokens, 0);
+  assert.strictEqual(u.out_tokens, 0);
+  // daily_blueprint：归因到 bp-A
+  const b = bpRow(db, localDay(NOW), 'bp-A');
+  assert.strictEqual(b.runs_done, 1);
+  assert.strictEqual(b.active_ms, 5000);
+  assert.strictEqual(b.interruptions, 2);
+  assert.strictEqual(b.in_tokens, 900);
+  assert.strictEqual(b.out_tokens, 100);
+});
+
+test('bp_run_end 三终态 + 中断/activeMs 累加到工作流', (t) => {
+  const { db, dao } = openTempDb(t);
+  ingestBatch(dao, [
+    makeEvent({ type: 'bp_run_end', payload: { blueprintId: 'bp-A', status: 'done', activeMs: 1000, interruptions: 1 } }),
+    makeEvent({ type: 'bp_run_end', payload: { blueprintId: 'bp-A', status: 'failed', activeMs: 2000, interruptions: 3 } }),
+    makeEvent({ type: 'bp_run_end', payload: { blueprintId: 'bp-B', status: 'halted', activeMs: 500 } }),
+  ], NOW);
+  const a = bpRow(db, localDay(NOW), 'bp-A');
+  assert.strictEqual(a.runs_done, 1);
+  assert.strictEqual(a.runs_failed, 1);
+  assert.strictEqual(a.active_ms, 3000);
+  assert.strictEqual(a.interruptions, 4);
+  const b = bpRow(db, localDay(NOW), 'bp-B');
+  assert.strictEqual(b.runs_halted, 1);
+});
+
+test('failure_event 带 blueprintId → daily_blueprint.failures；不带则不归因工作流', (t) => {
+  const { db, dao } = openTempDb(t);
+  ingestBatch(dao, [
+    makeEvent({ type: 'failure_event', payload: { kind: 'rate_limit', blueprintId: 'bp-A' } }),
+    makeEvent({ type: 'failure_event', payload: { kind: 'auth' } }), // 无 blueprintId
+  ], NOW);
+  // 归因的落 daily_blueprint
+  assert.strictEqual(bpRow(db, localDay(NOW), 'bp-A').failures, 1);
+  // 全部仍计入 daily_user.failures 与 daily_fail（总量不受工作流归因影响）
+  assert.strictEqual(dailyRow(db, localDay(NOW), 'inst-1').failures, 2);
+  assert.strictEqual(db.prepare('SELECT COUNT(*) c FROM daily_blueprint').get().c, 1); // 只有 bp-A
+});
+
+test('bp_run_start 不归因工作流（run 计数以终态为准）', (t) => {
+  const { db, dao } = openTempDb(t);
+  ingestBatch(dao, [
+    makeEvent({ type: 'bp_run_start', payload: { blueprintId: 'bp-A', runId: 'r1', tool: 'claude' } }),
+  ], NOW);
+  assert.strictEqual(db.prepare('SELECT COUNT(*) c FROM daily_blueprint').get().c, 0);
+});
+
+test('token 负数/非数 → 0（净化，防夜间补算把垃圾补回）', (t) => {
+  const { db, dao } = openTempDb(t);
+  ingestBatch(dao, [
+    makeEvent({ type: 'session_end', payload: { durationMs: 1000, inputTokens: -5, outputTokens: 'x' } }),
+    makeEvent({ type: 'bp_run_end', payload: { blueprintId: 'bp-A', status: 'done', inputTokens: NaN, interruptions: -1 } }),
+  ], NOW);
+  const u = dailyRow(db, localDay(NOW), 'inst-1');
+  assert.strictEqual(u.in_tokens, 0);
+  assert.strictEqual(u.out_tokens, 0);
+  const b = bpRow(db, localDay(NOW), 'bp-A');
+  assert.strictEqual(b.in_tokens, 0);
+  assert.strictEqual(b.interruptions, 0);
+});

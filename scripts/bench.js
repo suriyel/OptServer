@@ -82,9 +82,9 @@ function main() {
     const r = rng();
     let type, payload;
     if (r < 0.375) { type = 'session_start'; payload = '{"tool":"' + pick(TOOLS) + '","cwdHash":"abcdef012345"}'; }
-    else if (r < 0.75) { type = 'session_end'; payload = '{"tool":"' + pick(TOOLS) + '","durationMs":' + Math.floor(rng() * 3600000) + ',"exitCode":0}'; }
-    else if (r < 0.95) { type = 'bp_run_end'; payload = '{"blueprintId":"bp-' + Math.floor(rng() * 20) + '","runId":"r' + i + '","status":"' + pick(STATUSES) + '","activeMs":' + Math.floor(rng() * 1800000) + '}'; }
-    else { type = 'failure_event'; payload = '{"source":"error_autoresume","kind":"' + pick(KINDS) + '","reason":"bench","tool":"' + pick(TOOLS) + '"}'; }
+    else if (r < 0.75) { type = 'session_end'; payload = '{"tool":"' + pick(TOOLS) + '","durationMs":' + Math.floor(rng() * 3600000) + ',"exitCode":0,"inputTokens":' + Math.floor(rng() * 40000) + ',"outputTokens":' + Math.floor(rng() * 8000) + '}'; }
+    else if (r < 0.95) { type = 'bp_run_end'; payload = '{"blueprintId":"bp-' + Math.floor(rng() * 20) + '","runId":"r' + i + '","status":"' + pick(STATUSES) + '","activeMs":' + Math.floor(rng() * 1800000) + ',"interruptions":' + Math.floor(rng() * 4) + ',"inputTokens":' + Math.floor(rng() * 20000) + ',"outputTokens":' + Math.floor(rng() * 4000) + '}'; }
+    else { type = 'failure_event'; payload = '{"source":"error_autoresume","kind":"' + pick(KINDS) + '","reason":"bench","tool":"' + pick(TOOLS) + '"' + (rng() < 0.6 ? ',"blueprintId":"bp-' + Math.floor(rng() * 20) + '"' : '') + '}'; }
     buf.push({
       eventId: 'b-' + i, installId: 'inst-' + pad(inst, 4),
       user: 'user' + pad(inst, 4), host: 'HOST-' + pad(inst, 4),
@@ -106,10 +106,12 @@ function main() {
   dao.recomputeDaily('0000-01-01');
   dao.recomputeDailyTool('0000-01-01');
   dao.recomputeDailyFail('0000-01-01');
+  dao.recomputeDailyBlueprint('0000-01-01');
   dao.optimize(); // 刷新计划器统计，让 partial 覆盖索引被正确选中（等价夜间 job 的 optimize）
   console.log('[bench] full recompute in ' + ((Date.now() - t1) / 1000).toFixed(1) + 's; daily_user rows='
     + db.prepare('SELECT COUNT(*) c FROM daily_user').get().c
-    + ' daily_fail rows=' + db.prepare('SELECT COUNT(*) c FROM daily_fail').get().c);
+    + ' daily_fail rows=' + db.prepare('SELECT COUNT(*) c FROM daily_fail').get().c
+    + ' daily_blueprint rows=' + db.prepare('SELECT COUNT(*) c FROM daily_blueprint').get().c);
 
   // ---- 4) 查询计时（每项 20 次取 p50/p95）----
   const from30 = shiftDay(today, -29), from90 = shiftDay(today, -89);
@@ -131,6 +133,8 @@ function main() {
     ['failures kinds 30 天（daily_fail）', () => dao.qFailureKinds(from30, today), 20],
     ['failures byVersion 30 天', () => { dao.qFailuresByVersion(from30, today); dao.qRunEndsByVersion(from30, today); }, 300],
     ['failures recent 100', () => dao.qRecentFailures(from30, today, 100), 20],
+    ['users/top 30 天（token 排序）', () => dao.qTopUsers(from30, today, 'tokens', 10), 50],
+    ['blueprints 30 天', () => dao.qBlueprints(from30, today), 20],
     ['installs 明细', () => dao.qInstalls(), 5],
   ];
 

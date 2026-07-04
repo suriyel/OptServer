@@ -29,6 +29,7 @@ const TOOLS = ['claude', 'codex', 'gemini', 'cursor'];
 const VERSIONS = ['1.4.0', '1.3.2', '1.2.9'];
 const KINDS = ['rate_limit', 'auth', 'network', 'oom'];
 const STATUSES = ['done', 'done', 'done', 'failed', 'halted'];
+const BLUEPRINTS = ['ship-it', 'fix-tests', 'review-pr', 'refactor', 'docs-gen']; // 工作流（内部 blueprintId）
 const pick = (a) => a[Math.floor(rng() * a.length)];
 const pad = (n) => String(n).padStart(3, '0');
 
@@ -56,14 +57,19 @@ for (let d = DAYS - 1; d >= 0; d--) {
     for (let s = 0; s < nSess; s++) {
       const tool = pick(TOOLS);
       batch.push(ev({ ...id, type: 'session_start', payload: { tool, cwdHash: 'h' + inst } }));
-      batch.push(ev({ ...id, type: 'session_end', payload: { tool, durationMs: Math.floor(rng() * 3600000), exitCode: 0 } }));
+      batch.push(ev({ ...id, type: 'session_end', payload: { tool, durationMs: Math.floor(rng() * 3600000), exitCode: 0,
+        inputTokens: Math.floor(rng() * 40000), outputTokens: Math.floor(rng() * 8000) } }));
     }
     const nRun = Math.floor(rng() * 3);
     for (let r = 0; r < nRun; r++) {
-      batch.push(ev({ ...id, type: 'bp_run_end', payload: { blueprintId: 'bp-' + (r % 5), runId: 'r' + seq, status: pick(STATUSES), activeMs: Math.floor(rng() * 600000) } }));
+      const bp = pick(BLUEPRINTS);
+      batch.push(ev({ ...id, type: 'bp_run_end', payload: { blueprintId: bp, runId: 'r' + seq, status: pick(STATUSES),
+        activeMs: Math.floor(rng() * 600000), interruptions: Math.floor(rng() * 3),
+        inputTokens: Math.floor(rng() * 20000), outputTokens: Math.floor(rng() * 4000) } }));
     }
     if (rng() < 0.25) {
-      batch.push(ev({ ...id, type: 'failure_event', payload: { source: 'error_autoresume', kind: pick(KINDS), reason: 'demo failure sample', tool: pick(TOOLS) } }));
+      batch.push(ev({ ...id, type: 'failure_event', payload: { source: 'error_autoresume', kind: pick(KINDS),
+        reason: 'demo failure sample', tool: pick(TOOLS), blueprintId: pick(BLUEPRINTS) } }));
     }
     ingestBatch(dao, batch, at);
   }

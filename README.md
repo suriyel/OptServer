@@ -1,6 +1,6 @@
 # cancong-ops
 
-蚕丛 harness 的运营统计服务器：接收各实例上报的使用事件（`POST /v1/events`），SQLite 存储 + 增量聚合，提供查询聚合 API（`GET /v1/stats/*`）与自建四页看板。
+蚕丛 harness 的运营统计服务器：接收各实例上报的使用事件（`POST /v1/events`），SQLite 存储 + 增量聚合，提供查询聚合 API（`GET /v1/stats/*`）与自建看板（概览/趋势/工作流/用户/失败/实例 六页）。
 
 契约与设计依据：[OPS-TELEMETRY-DESIGN.md](./OPS-TELEMETRY-DESIGN.md)——§4 事件信封（双端唯一契约）、§7.3 查询 API（看板唯一契约）。
 
@@ -73,6 +73,8 @@ GET  /v1/stats/versions    # 版本分布（近 30 天活跃实例）
 GET  /v1/stats/tools?from&to
 GET  /v1/stats/runs?from&to
 GET  /v1/stats/failures?from&to   # 类型分布、按版本失败率、最近失败（受 90 天保留窗约束）
+GET  /v1/stats/users/top?from&to&metric&limit  # 高频用户 Top N（metric 排序）
+GET  /v1/stats/blueprints?from&to # 各工作流 runs/失败/E2E/中断/token
 GET  /v1/installs          # 实例明细
 ```
 
