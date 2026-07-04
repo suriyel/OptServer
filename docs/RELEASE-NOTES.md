@@ -4,6 +4,23 @@
 
 ---
 
+## v0.3.0 — 2026-07-04
+
+趋势页统一 ECharts + 新增实时视图。
+
+### 新增能力
+- **趋势页「实时」视图**：顶部「按日期 / 实时」模式切换。实时 = 近 24 小时、1 分钟分桶，展示事件脉冲(面积)、run 终态(堆叠)、活跃人数+会话数、Token 消耗四图，每 60s 刷新拉新分钟桶，支持 dataZoom 缩放/滚动。
+- 新端点 `GET /v1/stats/realtime?window=`：按分钟直查 events，无新增存储；只返回非空桶，前端补零完整分钟轴。
+
+### 关键实现
+- **图表库统一为 ECharts**：趋势页从 uPlot 迁到 ECharts(`core/echarts.js` 新增 `timeLine`/`timeBars` 时序构建器)，**整体移除 uPlot**(vendored 文件、`core/charts.js`、devDep)——看板收敛到单一图表库。
+- 实时直查 events：`day` 先导索引缩到近 ~2 天，再按 `server_ts` 精确切窗，700 万行实测毫秒级(<200ms)。token 口径与 daily 一致(仅 session_end，防双计)；`activeUsers` = 每分钟去重 user@host(活跃≠在线，心跳不落 events)。
+
+### 验证
+65 个 `node:test` 用例(新增 realtime 分桶/窗口切分/activeUsers 去重)；`npm run bench` 700 万行 realtime 近 24h 查询过验收线；Playwright 实测两模式渲染与切换。
+
+---
+
 ## v0.2.0 — 2026-07-04
 
 工作流/用户/Token 统计扩展。新增两个看板页与两个查询端点，覆盖高频用户、Token 消耗、工作流使用与失败归因。

@@ -4,7 +4,7 @@
 
 import { getStats } from '../core/api.js';
 import { escapeHtml, fmtInt, fmtPct, fmtLocalFromIso } from '../core/fmt.js';
-import { COLORS } from '../core/charts.js';
+import { EC as COLORS } from '../core/echarts.js';
 import { rangeParams } from '../core/range.js';
 
 /** @type {HTMLElement} */ let root;

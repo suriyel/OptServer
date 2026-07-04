@@ -4,7 +4,7 @@
 
 契约与设计依据：[OPS-TELEMETRY-DESIGN.md](./OPS-TELEMETRY-DESIGN.md)——§4 事件信封（双端唯一契约）、§7.3 查询 API（看板唯一契约）。
 
-技术形态：Node CJS 单进程，仅 2 个运行时依赖（express + better-sqlite3），零构建（看板为 vanilla ESM + vendored uPlot），数据即单个 `.db` 文件。
+技术形态：Node CJS 单进程，仅 2 个运行时依赖（express + better-sqlite3），零构建（看板为 vanilla ESM + vendored ECharts），数据即单个 `.db` 文件。
 
 **文档**：[docs/](./docs/) — [API 契约](./docs/API.md) · [架构与实现](./docs/ARCHITECTURE.md) · [部署与运维](./docs/DEPLOYMENT.md) · [Release Notes](./docs/RELEASE-NOTES.md)
 
@@ -57,7 +57,7 @@ curl -s -X POST http://localhost:5900/v1/events -H 'content-type: application/js
 ```bash
 npm test                  # node:test 确定性测试（无外网、无浏览器）
 npm run bench             # 700 万行压测：灌数 → 全量重算 → 逐查询 p50/p95 对照验收线
-npm run vendor            # 升级 uplot 后重拷 public/vendor/（vendored 产物提交进 git）
+npm run vendor            # 升级 echarts/字体后重拷 public/vendor/（vendored 产物提交进 git）
 ```
 
 目录：`lib/`（db 唯一 SQL 层 / ingest / stats / aggregate / time-utils）、`public/`（看板：js/core + js/features 分层）、`__tests__/`、`scripts/`、`deploy/`。
@@ -75,6 +75,7 @@ GET  /v1/stats/runs?from&to
 GET  /v1/stats/failures?from&to   # 类型分布、按版本失败率、最近失败（受 90 天保留窗约束）
 GET  /v1/stats/users/top?from&to&metric&limit  # 高频用户 Top N（metric 排序）
 GET  /v1/stats/blueprints?from&to # 各工作流 runs/失败/E2E/中断/token
+GET  /v1/stats/realtime?window=   # 近 24h 按分钟直查 events（实时视图）
 GET  /v1/installs          # 实例明细
 ```
 

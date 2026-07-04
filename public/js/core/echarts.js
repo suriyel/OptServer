@@ -114,3 +114,72 @@ export function stackedBar(d) {
     animationEasing: 'cubicOut', animationDuration: 500,
   });
 }
+
+// x=时间标签的公共骨架（趋势日视图与实时视图共用）。zoom 时挂 dataZoom（内滚+底部滑条）。
+function timeBase(categories, zoom) {
+  const o = Object.assign(baseOption(), {
+    grid: { left: 8, right: 20, top: 30, bottom: zoom ? 44 : 8, containLabel: true },
+    xAxis: Object.assign({}, CAT_AXIS, {
+      data: categories, boundaryGap: false,
+      axisLabel: { color: DIM, fontFamily: MONO, fontSize: 11, hideOverlap: true },
+    }),
+    yAxis: VAL_AXIS,
+  });
+  if (zoom) {
+    o.grid.top = 30;
+    o.dataZoom = [
+      { type: 'inside', throttle: 50 },
+      { type: 'slider', height: 16, bottom: 8, borderColor: AXIS,
+        fillerColor: 'rgba(240,168,48,0.12)', handleStyle: { color: '#f0a830' },
+        dataBackground: { lineStyle: { color: AXIS }, areaStyle: { color: '#1a1e26' } },
+        textStyle: { color: DIM, fontFamily: MONO, fontSize: 10 } },
+    ];
+  }
+  return o;
+}
+
+// 竖向面积渐变（顶亮底透），实时脉冲线用
+function areaGrad(hex) {
+  return { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+    colorStops: [{ offset: 0, color: hex + '44' }, { offset: 1, color: hex + '02' }] };
+}
+
+/**
+ * 多序列折线（x=时间标签）。series: [{ name, color, values, axis?:2, fmt?, area? }]
+ * @param {{ categories:string[], series:any[], zoom?:boolean }} d
+ */
+export function timeLine(d) {
+  const o = timeBase(d.categories, d.zoom);
+  const dual = d.series.some((s) => s.axis === 2);
+  o.tooltip = Object.assign(baseOption().tooltip, { trigger: 'axis' });
+  if (dual) {
+    const right = d.series.find((s) => s.axis === 2);
+    o.yAxis = [VAL_AXIS, Object.assign({}, VAL_AXIS, { splitLine: { show: false },
+      axisLabel: { color: DIM, fontFamily: MONO, fontSize: 11,
+        formatter: right && right.fmt ? (v) => right.fmt(v) : undefined } })];
+  }
+  o.series = d.series.map((s) => ({
+    name: s.name, type: 'line', data: s.values,
+    yAxisIndex: s.axis === 2 ? 1 : 0,
+    showSymbol: false, smooth: 0.2, sampling: 'lttb',
+    lineStyle: { color: s.color, width: 2 }, itemStyle: { color: s.color },
+    areaStyle: s.area ? { color: areaGrad(s.color) } : undefined,
+    emphasis: { focus: 'series' },
+    tooltip: s.fmt ? { valueFormatter: s.fmt } : undefined,
+  }));
+  return o;
+}
+
+/**
+ * 纵向堆叠柱（x=时间标签，run 终态）。series: [{ name, color, values }]
+ * @param {{ categories:string[], series:any[], zoom?:boolean }} d
+ */
+export function timeBars(d) {
+  const o = timeBase(d.categories, d.zoom);
+  o.tooltip = Object.assign(baseOption().tooltip, { trigger: 'axis' });
+  o.series = d.series.map((s) => ({
+    name: s.name, type: 'bar', stack: 'total', data: s.values,
+    itemStyle: { color: s.color }, emphasis: { focus: 'series' },
+  }));
+  return o;
+}

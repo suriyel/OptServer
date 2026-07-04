@@ -192,6 +192,24 @@ GET /healthz → 200 { "ok": true }
 - `runs` = done+failed+halted；`failures` = 归因到本工作流的 `failure_event` 数(带 blueprintId)。
 - `activeMs` 为「E2E 活跃时长」口径(累加 bp_run_end.activeMs)；`interruptions` 为运行中用户中断次数。
 
+### `GET /v1/stats/realtime?window=`
+实时活动：近 `window` 分钟(默认/上限 1440 = 24h)**按分钟直查 events**，无新增存储。只返回**非空分钟桶**，缺失分钟补零交前端。
+```jsonc
+{ "ok": true, "data": {
+  "window": 1440,
+  "now": "2026-07-04T09:30:12.000Z",
+  "buckets": [
+    { "min": "2026-07-04T09:28",   // UTC 分钟(server_ts 前 16 位)；前端转本地 HH:MM
+      "events": 42, "sessions": 6, "runsDone": 3, "runsFailed": 1, "runsHalted": 0,
+      "failures": 1, "tokens": 128400, "activeUsers": 5 }
+  ]
+} }
+```
+- `tokens` 口径与 daily 一致(仅 `session_end` 的 in+out，防双计)。
+- `activeUsers` = 该分钟内有事件的去重 `user@host`——是**活跃**（在做事）而非**在线**（心跳不落 events，无法做分钟在线数）。
+- 索引路径：`day` 先导(ix_events_day)缩到近 ~2 天，再按 `server_ts` 精确切窗。
+- 性能：24h/1min 直查需扫 ~10 万行(CPU-bound ~1s 级)。因分钟桶 60s 才变、看板 60s 刷新，端点带 **30s 响应 memo**(§8.3)按 window 缓存、多看板共享，实际近即时。若日后要原始查询本身达毫秒级，可加分钟级 rollup 表(当前按「不新增存储」取舍未做)。
+
 ### `GET /v1/installs`
 实例明细(按 last_seen 倒序)。
 ```jsonc

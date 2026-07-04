@@ -214,3 +214,46 @@ test('failures recent：带 blueprintId（失败对应工作流）', async (t) =
   const { json } = await getJson(h.baseUrl, `/v1/stats/failures?from=${from}&to=${to}`);
   assert.strictEqual(json.data.recent[0].payload.blueprintId, 'ship-it');
 });
+
+test('realtime：按分钟分桶 + 窗口精确切 + activeUsers 去重', async (t) => {
+  const h = await makeApp(t, { nowFn: () => NOW });
+  const min = (m) => new Date(NOW.getTime() - m * 60000);
+  const key = (m) => min(m).toISOString().slice(0, 16);
+  // t-2min：A 一次完整会话(token 100/20) + 一个 done run
+  ingestBatch(h.dao, [
+    makeEvent({ ...A, type: 'session_start', payload: { tool: 'claude' } }),
+    makeEvent({ ...A, type: 'session_end', payload: { tool: 'claude', durationMs: 1000, inputTokens: 100, outputTokens: 20 } }),
+    makeEvent({ ...A, type: 'bp_run_end', payload: { blueprintId: 'x', status: 'done', activeMs: 500 } }),
+  ], min(2));
+  // t-5min：B 一次失败 + 会话开始
+  ingestBatch(h.dao, [
+    makeEvent({ ...B, type: 'failure_event', payload: { kind: 'oom' } }),
+    makeEvent({ ...B, type: 'session_start', payload: { tool: 'codex' } }),
+  ], min(5));
+  // t-90min：窗口(60)外，应被 server_ts 精确排除（同一本地日，day 过滤挡不住）
+  ingestBatch(h.dao, [makeEvent({ ...A, type: 'session_start' })], min(90));
+
+  const { json } = await getJson(h.baseUrl, '/v1/stats/realtime?window=60');
+  assert.strictEqual(json.data.window, 60);
+  const byMin = new Map(json.data.buckets.map((b) => [b.min, b]));
+  assert.strictEqual(byMin.size, 2);                   // 仅窗口内两个分钟桶
+  const b2 = byMin.get(key(2));
+  assert.strictEqual(b2.events, 3);
+  assert.strictEqual(b2.sessions, 1);
+  assert.strictEqual(b2.runsDone, 1);
+  assert.strictEqual(b2.tokens, 120);                  // 仅 session_end token
+  assert.strictEqual(b2.activeUsers, 1);
+  const b5 = byMin.get(key(5));
+  assert.strictEqual(b5.events, 2);
+  assert.strictEqual(b5.failures, 1);
+  assert.strictEqual(b5.activeUsers, 1);
+});
+
+test('realtime：空库返回空 buckets；window 上限 1440', async (t) => {
+  const h = await makeApp(t, { nowFn: () => NOW });
+  const empty = (await getJson(h.baseUrl, '/v1/stats/realtime')).json.data;
+  assert.deepStrictEqual(empty.buckets, []);
+  assert.strictEqual(empty.window, 1440);              // 默认 24h
+  const capped = (await getJson(h.baseUrl, '/v1/stats/realtime?window=99999')).json.data;
+  assert.strictEqual(capped.window, 1440);             // 上限封顶
+});

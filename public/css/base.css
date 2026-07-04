@@ -256,8 +256,3 @@ td { color: var(--text-2); }
 .legend .legend-item { display: flex; align-items: center; gap: 9px; }
 .legend .swatch { width: 11px; height: 11px; border-radius: 3px; flex: none; }
 .legend .legend-val { color: var(--muted); }
-
-/* ---- uPlot 暗色适配 ---- */
-.u-legend { color: var(--muted) !important; font-family: var(--font-mono) !important; font-size: var(--fs-2xs) !important; }
-.u-legend .u-value { color: var(--text) !important; }
-.u-title { color: var(--text-2) !important; }

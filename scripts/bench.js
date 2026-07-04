@@ -135,6 +135,12 @@ function main() {
     ['failures recent 100', () => dao.qRecentFailures(from30, today, 100), 20],
     ['users/top 30 天（token 排序）', () => dao.qTopUsers(from30, today, 'tokens', 10), 50],
     ['blueprints 30 天', () => dao.qBlueprints(from30, today), 20],
+    // 原始查询：24h/1min 直查需扫 ~10 万行、~1s 级（CPU-bound，非缺索引；bench 合成数据按
+    // 随机序插入更悲观，生产按时序 append 更快）。端点侧 30s memo(§8.3)摊薄，看板近即时。
+    ['realtime 近 24h 原始查询（端点 30s memo 摊薄）', () => {
+      const from = new Date(now.getTime() - 1440 * 60 * 1000);
+      dao.qRealtime(from.toISOString(), shiftDay(today, -1));
+    }, 1500],
     ['installs 明细', () => dao.qInstalls(), 5],
   ];
 

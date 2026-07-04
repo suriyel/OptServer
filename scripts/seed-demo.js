@@ -75,6 +75,29 @@ for (let d = DAYS - 1; d >= 0; d--) {
   }
 }
 
+// 实时视图：把最近 24 小时按分钟撒事件（每分钟以一定概率来一小批），让分钟趋势有分布
+for (let m = 0; m < 24 * 60; m++) {
+  if (rng() > 0.5) continue; // ~半数分钟有活动
+  const at = new Date(now.getTime() - m * 60000);
+  const inst = 1 + Math.floor(rng() * INSTALLS);
+  const id = { installId: 'inst-' + pad(inst), user: 'user' + pad(inst), host: 'HOST-' + pad(inst), appVersion: pick(VERSIONS) };
+  const batch = [];
+  const nSess = 1 + Math.floor(rng() * 3);
+  for (let s = 0; s < nSess; s++) {
+    const tool = pick(TOOLS);
+    batch.push(ev({ ...id, type: 'session_start', payload: { tool } }));
+    batch.push(ev({ ...id, type: 'session_end', payload: { tool, durationMs: Math.floor(rng() * 600000),
+      inputTokens: Math.floor(rng() * 20000), outputTokens: Math.floor(rng() * 4000) } }));
+  }
+  if (rng() < 0.6) {
+    batch.push(ev({ ...id, type: 'bp_run_end', payload: { blueprintId: pick(BLUEPRINTS), runId: 'rt' + seq,
+      status: pick(STATUSES), activeMs: Math.floor(rng() * 300000), interruptions: Math.floor(rng() * 2),
+      inputTokens: Math.floor(rng() * 8000), outputTokens: Math.floor(rng() * 2000) } }));
+  }
+  if (rng() < 0.15) batch.push(ev({ ...id, type: 'failure_event', payload: { kind: pick(KINDS), blueprintId: pick(BLUEPRINTS) } }));
+  ingestBatch(dao, batch, at);
+}
+
 // 让约 30% 实例最后活动落在 10 分钟内（看板显示"在线"）：给它们补一条 now 心跳
 const insts = dao.qInstalls();
 for (const it of insts) {

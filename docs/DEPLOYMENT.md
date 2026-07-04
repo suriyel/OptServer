@@ -12,11 +12,11 @@
 
 ```bash
 git clone <repo> /opt/cancong-ops && cd /opt/cancong-ops
-npm ci --omit=dev          # 只装运行时依赖(express + better-sqlite3)；uPlot 已 vendored 进 public/
+npm ci --omit=dev          # 只装运行时依赖(express + better-sqlite3)；ECharts/字体已 vendored 进 public/
 npm start                  # 等价 node server.js，默认 http://localhost:5900
 ```
 
-> `public/vendor/` 里的 uPlot 已随仓库提交，`--omit=dev` 不会缺文件。
+> `public/vendor/` 里的 ECharts 与字体已随仓库提交，`--omit=dev` 不会缺文件。
 
 ## 3. 环境变量
 

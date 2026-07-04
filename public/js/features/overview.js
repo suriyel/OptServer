@@ -3,9 +3,9 @@
 
 import { getStats } from '../core/api.js';
 import { escapeHtml, fmtInt, fmtDuration } from '../core/fmt.js';
-import { COLORS } from '../core/charts.js';
+import { EC as COLORS } from '../core/echarts.js';
 
-const DONUT_COLORS = [COLORS.amber, COLORS.blue, COLORS.green, COLORS.purple, COLORS.orange, COLORS.muted];
+const DONUT_COLORS = [COLORS.amber, COLORS.blue, COLORS.green, COLORS.violet, COLORS.orange, COLORS.muted];
 
 /** @type {HTMLElement} */ let root;
 
