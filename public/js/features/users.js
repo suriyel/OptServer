@@ -1,39 +1,44 @@
 // @ts-check
-// users.js —— 用户页：Top N 高频用户。metric 选择器（会话/run/token/时长/失败）→ 重查
-// /v1/stats/users/top?metric=（服务器按 metric 排序取 Top N）。表格展示全指标。
+// users.js —— 用户页：Top N 高频用户。ECharts 横向排名条形图（主视图）+ 明细表。
+// metric 分段控件（会话/run/token/时长/失败）→ 重查 /v1/stats/users/top?metric=（服务器排序）。
 
 import { getStats } from '../core/api.js';
 import { escapeHtml, fmtInt, fmtDuration } from '../core/fmt.js';
 import { rangeParams } from '../core/range.js';
+import { makeChart, rankedBar, EC } from '../core/echarts.js';
 
-// value 对应服务器 metric 白名单；label 用户可见
 const METRICS = [
-  { value: 'sessions', label: '会话数' },
-  { value: 'runs', label: 'run 数' },
-  { value: 'tokens', label: 'Token' },
-  { value: 'sessionMs', label: '活跃时长' },
-  { value: 'failures', label: '失败数' },
+  { value: 'sessions', label: '会话数', color: EC.amber, fmt: fmtInt },
+  { value: 'runs', label: 'run 数', color: EC.cyan, fmt: fmtInt },
+  { value: 'tokens', label: 'Token', color: EC.violet, fmt: fmtInt },
+  { value: 'sessionMs', label: '活跃时长', color: EC.blue, fmt: fmtDuration },
+  { value: 'failures', label: '失败数', color: EC.red, fmt: fmtInt },
 ];
 
 /** @type {HTMLElement} */ let root;
+/** @type {any} */ let chart;
 let metric = 'sessions';
 
 export function init(el) {
   root = el;
   el.innerHTML = `
     <div class="panel">
-      <h3>高频用户 Top 10</h3>
-      <div style="margin-bottom:10px">
-        排序指标：
-        <select id="us-metric">
-          ${METRICS.map((m) => `<option value="${m.value}">${m.label}</option>`).join('')}
-        </select>
+      <div class="panel-head">
+        <h3>高频用户 Top 10</h3>
+        <div class="metric-seg" id="us-seg">
+          ${METRICS.map((m) => `<button data-m="${m.value}"${m.value === metric ? ' class="on"' : ''}>${m.label}</button>`).join('')}
+        </div>
       </div>
-      <div id="us-table"></div>
+      <div class="echart echart-tall" id="us-chart"></div>
     </div>
+    <div class="panel"><h3>明细</h3><div id="us-table"></div></div>
     <div class="error-box" id="us-error"></div>`;
-  el.querySelector('#us-metric').addEventListener('change', (e) => {
-    metric = /** @type {HTMLSelectElement} */ (e.target).value;
+  chart = makeChart(/** @type {HTMLElement} */ (el.querySelector('#us-chart')));
+  el.querySelector('#us-seg').addEventListener('click', (e) => {
+    const b = /** @type {HTMLElement} */ (e.target).closest('button');
+    if (!b || !b.dataset.m) return;
+    metric = b.dataset.m;
+    el.querySelectorAll('#us-seg button').forEach((x) => x.classList.toggle('on', /** @type {HTMLElement} */ (x).dataset.m === metric));
     refresh();
   });
 }
@@ -44,19 +49,37 @@ export async function refresh() {
   try {
     const params = Object.assign({ metric, limit: '10' }, rangeParams());
     const d = await getStats('/stats/users/top', params);
-    render(d.users);
+    renderChart(d.users);
+    renderTable(d.users);
   } catch (e) {
     errBox.textContent = '加载失败：' + /** @type {Error} */ (e).message;
     throw e;
   }
 }
 
-function render(users) {
+function metricVal(u) {
+  return metric === 'tokens' ? u.tokens
+    : metric === 'runs' ? u.runs
+    : metric === 'sessionMs' ? u.sessionMs
+    : metric === 'failures' ? u.failures : u.sessions;
+}
+
+function renderChart(users) {
+  const m = METRICS.find((x) => x.value === metric);
+  // 服务器已按 metric 降序；条形图最大值置顶（rankedBar inverse）
+  chart.set(rankedBar({
+    categories: users.map((u) => u.user + '@' + u.host),
+    values: users.map(metricVal),
+    color: m.color,
+    valueFmt: m.fmt,
+  }));
+}
+
+function renderTable(users) {
   if (!users.length) { root.querySelector('#us-table').innerHTML = '<div class="empty">范围内无用户活动</div>'; return; }
-  // 高亮当前排序列
-  const mark = (m) => metric === m ? ' style="color:var(--amber)"' : '';
+  const mark = (col) => metric === col ? ' style="color:var(--amber)"' : '';
   const body = users.map((u, i) => `<tr>
-    <td class="num">${i + 1}</td>
+    <td><span class="rank${i < 3 ? ' top' : ''}">${i + 1}</span></td>
     <td>${escapeHtml(u.user)}@${escapeHtml(u.host)}</td>
     <td class="num"${mark('sessions')}>${fmtInt(u.sessions)}</td>
     <td class="num"${mark('runs')}>${fmtInt(u.runs)}</td>

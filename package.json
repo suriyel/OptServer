@@ -10,13 +10,15 @@
     "start": "node server.js",
     "test": "node --test \"__tests__/*.test.js\"",
     "bench": "node scripts/bench.js",
-    "vendor": "node scripts/vendor-uplot.js"
+    "vendor": "node scripts/vendor-assets.js"
   },
   "dependencies": {
-    "express": "^5.1.0",
-    "better-sqlite3": "^12.10.0"
+    "better-sqlite3": "^12.10.0",
+    "express": "^5.1.0"
   },
   "devDependencies": {
+    "@fontsource/ibm-plex-mono": "^5.2.7",
+    "echarts": "^6.1.0",
     "uplot": "^1.6.32"
   }
 }

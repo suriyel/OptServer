@@ -14,6 +14,7 @@
 - **Token 统计**：概览页今日 Token 卡片、趋势页输入/输出 Token 曲线、用户与工作流维度的 Token 归因。
 - **失败对应工作流**：失败页最近失败表新增「工作流」列；`failure_event` 带 `blueprintId` 时归因到具体工作流。
 - 新端点 `GET /v1/stats/users/top`(metric 白名单排序)、`GET /v1/stats/blueprints`；`overview`/`dau` 增 Token 字段。
+- **看板视觉升级**：「精密仪表盘」暗色设计系统(amber+cyan 信号色、IBM Plex Mono 等宽数字、载入错峰揭示、脉冲在线点)；用户页/工作流页引入 vendored **ECharts** 图表(横向排名条形 / 运行终态堆叠条形，指标可切换)，趋势页仍用 uPlot。
 
 ### 契约扩展(客户端需上报的 payload 字段)
 - `session_end`：`inputTokens`/`outputTokens`(token 总量权威)。

@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>蚕丛 · 运营看板</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230c0e12'/%3E%3Crect x='9' y='9' width='14' height='14' rx='3' transform='rotate(45 16 16)' fill='%23f0a830'/%3E%3C/svg%3E">
+  <link rel="preload" as="font" type="font/woff2" href="/vendor/fonts/ibm-plex-mono-500.woff2" crossorigin>
   <link rel="stylesheet" href="/vendor/uPlot.min.css">
   <link rel="stylesheet" href="/css/base.css">
 </head>
@@ -35,8 +37,9 @@
     <section id="page-failures" class="page"></section>
     <section id="page-installs" class="page"></section>
   </main>
-  <!-- vendored 库挂 window（对齐主仓库惯例），ESM 侧经 core/charts.js 收口访问 -->
+  <!-- vendored 库挂 window，ESM 侧经 core/charts.js（uPlot）、core/echarts.js（ECharts）收口访问 -->
   <script src="/vendor/uPlot.iife.min.js"></script>
+  <script src="/vendor/echarts.min.js"></script>
   <script type="module" src="/js/main.js"></script>
 </body>
 </html>
