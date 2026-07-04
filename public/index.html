@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>蚕丛 · 运营看板</title>
+  <link rel="stylesheet" href="/vendor/uPlot.min.css">
+  <link rel="stylesheet" href="/css/base.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">蚕丛 <span class="brand-sub">运营看板</span></div>
+    <nav class="tabs" id="tabs">
+      <a href="#overview" data-tab="overview">概览</a>
+      <a href="#trend" data-tab="trend">趋势</a>
+      <a href="#failures" data-tab="failures">失败</a>
+      <a href="#installs" data-tab="installs">实例</a>
+    </nav>
+    <div class="topbar-right">
+      <select id="range-select" title="统计范围">
+        <option value="7">近 7 天</option>
+        <option value="30" selected>近 30 天</option>
+        <option value="90">近 90 天</option>
+      </select>
+      <span id="refresh-hint" class="muted"></span>
+    </div>
+  </header>
+  <main id="main">
+    <section id="page-overview" class="page"></section>
+    <section id="page-trend" class="page"></section>
+    <section id="page-failures" class="page"></section>
+    <section id="page-installs" class="page"></section>
+  </main>
+  <!-- vendored 库挂 window（对齐主仓库惯例），ESM 侧经 core/charts.js 收口访问 -->
+  <script src="/vendor/uPlot.iife.min.js"></script>
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>

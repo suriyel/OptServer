@@ -1,0 +1,23 @@
+# cancong-ops systemd 单元
+# 安装：
+#   cp deploy/cancong-ops.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now cancong-ops
+# 注意：TZ 必须钉死——day 归日按进程本地时区切分，改 TZ 会让历史日界漂移（见 README）
+
+[Unit]
+Description=cancong-ops telemetry server
+After=network.target
+
+[Service]
+Type=simple
+User=ops
+WorkingDirectory=/opt/cancong-ops
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=3
+Environment=TZ=Asia/Shanghai
+Environment=PORT=5900
+Environment=OPS_DB_PATH=/var/lib/cancong-ops/ops.db
+
+[Install]
+WantedBy=multi-user.target

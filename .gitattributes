@@ -1,0 +1,4 @@
+# 文本统一 LF（跨 Windows 开发 / Linux 部署一致）；vendored 压缩产物按二进制处理
+* text=auto eol=lf
+*.min.js binary
+*.min.css binary

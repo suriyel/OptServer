@@ -1,0 +1,125 @@
+/* base.css —— 全局暗色主题 + CSS 变量（对齐主仓库变量风格：--bg/--text/--amber 系） */
+
+:root {
+  --bg: #14161a;
+  --panel: #1d2026;
+  --panel-2: #242830;
+  --border: #2e333c;
+  --text: #e6e6e6;
+  --muted: #8b93a1;
+  --amber: #e8a33d;
+  --green: #4caf7d;
+  --red: #e05c5c;
+  --orange: #e8883d;
+  --blue: #5b9dd9;
+  --purple: #9d7be0;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 14px;
+  --fs-lg: 18px;
+  --fs-xl: 28px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: var(--fs-md)/1.5 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+}
+
+/* ---- 顶栏与 tab ---- */
+.topbar {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; gap: 24px;
+  padding: 0 20px; height: 52px;
+  background: var(--panel); border-bottom: 1px solid var(--border);
+}
+.brand { font-size: var(--fs-lg); font-weight: 600; color: var(--amber); white-space: nowrap; }
+.brand-sub { color: var(--muted); font-size: var(--fs-sm); font-weight: 400; margin-left: 4px; }
+.tabs { display: flex; gap: 4px; flex: 1; }
+.tabs a {
+  padding: 6px 14px; border-radius: 6px;
+  color: var(--muted); text-decoration: none; font-size: var(--fs-md);
+}
+.tabs a:hover { color: var(--text); background: var(--panel-2); }
+.tabs a.active { color: var(--amber); background: var(--panel-2); }
+.topbar-right { display: flex; align-items: center; gap: 10px; }
+.topbar-right select {
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px;
+}
+.muted { color: var(--muted); font-size: var(--fs-xs); }
+
+/* ---- 页面与面板 ---- */
+main { max-width: 1240px; margin: 0 auto; padding: 20px; }
+.page { display: none; }
+.page.active { display: block; }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  padding: 14px 16px;
+}
+.card .card-label { color: var(--muted); font-size: var(--fs-sm); }
+.card .card-value { font-size: var(--fs-xl); font-weight: 600; margin-top: 2px; }
+.card .card-value .unit { font-size: var(--fs-sm); color: var(--muted); font-weight: 400; margin-left: 4px; }
+
+.panel {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  padding: 14px 16px; margin-bottom: 16px;
+}
+.panel h3 { margin: 0 0 10px; font-size: var(--fs-md); color: var(--muted); font-weight: 500; }
+.panel-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 900px) { .panel-row { grid-template-columns: 1fr; } }
+
+.error-box { color: var(--red); padding: 8px 0; font-size: var(--fs-sm); }
+.empty { color: var(--muted); padding: 12px 0; text-align: center; }
+
+/* ---- 表格 ---- */
+table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); }
+th { color: var(--muted); font-weight: 500; white-space: nowrap; user-select: none; }
+th.sortable { cursor: pointer; }
+th.sortable:hover { color: var(--text); }
+th .arrow { font-size: 10px; margin-left: 3px; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+tr:hover td { background: var(--panel-2); }
+
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--muted); }
+.dot.online { background: var(--green); box-shadow: 0 0 5px var(--green); }
+
+.filter-input {
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 5px 10px; width: 240px; margin-bottom: 10px; font-size: var(--fs-sm);
+}
+
+/* ---- 条形列表（工具占比 / 失败类型） ---- */
+.barlist { display: flex; flex-direction: column; gap: 8px; }
+.barlist .bar-row { display: grid; grid-template-columns: 110px 1fr 90px; align-items: center; gap: 10px; font-size: var(--fs-sm); }
+.barlist .bar-name { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.barlist .bar-track { background: var(--panel-2); border-radius: 4px; height: 16px; overflow: hidden; }
+.barlist .bar-fill { height: 100%; border-radius: 4px; background: var(--blue); }
+.barlist .bar-val { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ---- 版本环图（纯 CSS conic-gradient，不为环图引第二个图表库） ---- */
+.donut-wrap { display: flex; align-items: center; gap: 24px; }
+.donut { width: 150px; height: 150px; border-radius: 50%; position: relative; flex: none; }
+.donut::after {
+  content: attr(data-center);
+  position: absolute; inset: 28px; border-radius: 50%;
+  background: var(--panel);
+  display: flex; align-items: center; justify-content: center;
+  font-size: var(--fs-sm); color: var(--muted); text-align: center; white-space: pre-line;
+}
+.legend { display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-sm); }
+.legend .legend-item { display: flex; align-items: center; gap: 8px; }
+.legend .swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+.legend .legend-val { color: var(--muted); }
+
+/* ---- uPlot 暗色适配 ---- */
+.chart { width: 100%; }
+.u-legend { color: var(--muted) !important; font-size: var(--fs-xs) !important; }
+.u-legend .u-value { color: var(--text) !important; }
