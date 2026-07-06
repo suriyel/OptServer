@@ -26,7 +26,7 @@ deploy/              cancong-ops.service（systemd 单元）
 __tests__/           node:test 确定性测试（49 用例）
 ```
 
-**装配顺序**(`server.js::createApp`)：`express.json(1mb)` → `/healthz` → 全局门禁 `createAuthGate`(未登录页面→302 `login.html`、`/v1`→401；白名单 `/healthz`+`/login.html`+`POST /v1/auth/login`) → `/v1` auth 路由(登录/账号) → ingest/stats 路由 → `public/` 静态(仅登录后可达) → `/v1` JSON 404 → 错误兜底中间件。鉴权逻辑收敛在 `lib/auth.js`（scrypt 口令 + 会话令牌，Cookie/Bearer 双通道）。
+**装配顺序**(`server.js::createApp`)：`express.json(1mb)` → `/healthz` → 全局门禁 `createAuthGate`(只保护看板：未登录页面→302 `login.html`、受保护 `/v1`→401；白名单 `/healthz`+`/login.html`+`POST /v1/auth/login`+**`POST /v1/events` 采集上报**) → `/v1` auth 路由(登录/账号) → ingest/stats 路由 → `public/` 静态(仅登录后可达) → `/v1` JSON 404 → 错误兜底中间件。鉴权逻辑收敛在 `lib/auth.js`（scrypt 口令 + 会话令牌，Cookie/Bearer 双通道）。
 
 **生命周期**：`require.main` 时才 `listen` + `startScheduler` + 注册 SIGINT/SIGTERM。优雅退出逻辑抽为 `gracefulShutdown(scheduler, srv, close, exitFn, timeoutMs)`——停调度器 → `srv.close` 收尾 → 关库退出，3s 兜底强退。测试 `require` 不触发 `listen`。
 

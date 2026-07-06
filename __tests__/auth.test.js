@@ -105,7 +105,7 @@ test('会话过期：resolveAccount 惰性失效并删除', (t) => {
 
 // ---- 门禁（HTTP）----
 
-test('门禁：未登录 /v1 → 401；页面 → 302 login.html；login.html/healthz 放行', async (t) => {
+test('门禁：未登录 /v1 → 401；页面 → 302 login.html；login.html/healthz/上报 放行', async (t) => {
   const { baseUrl } = await makeApp(t, { auth: true });
 
   const s = await req(baseUrl, 'GET', '/v1/stats/overview');
@@ -119,6 +119,13 @@ test('门禁：未登录 /v1 → 401；页面 → 302 login.html；login.html/he
   assert.strictEqual((await req(baseUrl, 'GET', '/js/main.js')).status, 302); // 静态资源同样门禁
   assert.strictEqual((await req(baseUrl, 'GET', '/login.html')).status, 200);
   assert.strictEqual((await req(baseUrl, 'GET', '/healthz')).status, 200);
+
+  // 采集端上报开放：无任何凭据也放行（cancong 客户端不带 token）
+  const ev = await req(baseUrl, 'POST', '/v1/events', { body: { events: [] } });
+  assert.strictEqual(ev.status, 200);
+  assert.strictEqual(ev.json.ok, true);
+  // 但 events 之外的 /v1 未登录仍 401（GET /v1/events 非上报，也要拦）
+  assert.strictEqual((await req(baseUrl, 'GET', '/v1/events')).status, 401);
 });
 
 // ---- 登录 + 双通道会话 ----
@@ -144,11 +151,6 @@ test('鉴权后访问 stats/events/me：Bearer 与 Cookie 双通道', async (t) 
   const bs = await req(baseUrl, 'GET', '/v1/stats/overview', { headers: bearer(token) });
   assert.strictEqual(bs.status, 200);
   assert.strictEqual(bs.json.ok, true);
-
-  // 采集端上报（空批）带 Bearer → 200
-  const ev = await req(baseUrl, 'POST', '/v1/events', { headers: bearer(token), body: { events: [] } });
-  assert.strictEqual(ev.status, 200);
-  assert.strictEqual(ev.json.ok, true);
 
   const cs = await req(baseUrl, 'GET', '/v1/stats/overview', { headers: cookieHeader(ok.headers['set-cookie']) });
   assert.strictEqual(cs.status, 200);

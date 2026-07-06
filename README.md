@@ -23,17 +23,10 @@ npm start                 # 默认 http://localhost:5900
 
 > ⚠️ 默认密码仅供首次登录，请尽快在看板「用户菜单 → 修改密码」改掉，或启动前用 `OPS_ADMIN_PASSWORD` 指定。登录后管理员可在「账号管理」新增普通用户；**管理员始终只有一个**。详见 [登录鉴权](#登录鉴权)。
 
-打一批样例事件（`/v1` 需登录：先取 token，再带 `Authorization: Bearer`；浏览器里则用登录后的 Cookie，无需手动带）：
+打一批样例事件（上报接口 `POST /v1/events` **开放，无需登录**——采集端直接上报）：
 
 ```bash
-# 1) 登录取 token
-curl -s -X POST http://localhost:5900/v1/auth/login \
-  -H 'content-type: application/json' -d '{"username":"admin","password":"admin123"}'
-# → {"ok":true,"data":{"username":"admin","role":"admin","token":"<TOKEN>"}}
-
-# 2) 带 token 上报
-curl -s -X POST http://localhost:5900/v1/events \
-  -H 'authorization: Bearer <TOKEN>' -H 'content-type: application/json' -d '{
+curl -s -X POST http://localhost:5900/v1/events -H 'content-type: application/json' -d '{
   "events": [{
     "schemaVersion": 1, "eventId": "demo-1", "type": "session_start",
     "ts": "2026-07-02T09:30:00+08:00", "installId": "demo-install",
@@ -107,6 +100,5 @@ GET  /v1/installs          # 实例明细
 
 简单登录模式：**预置一个管理员**（`OPS_ADMIN_USER`/`OPS_ADMIN_PASSWORD`，首次启动自动创建），管理员可在看板「账号管理」新增普通用户；**管理员永远只有一个**（应用层新增用户恒 `role=user`，库层 `accounts` 上的 partial unique index 兜底，任何路径都造不出第二个 admin）。
 
-- **保护范围**：除 `/healthz`、`/login.html`、`POST /v1/auth/login` 外，**所有页面与 `/v1` 接口都要求登录会话**。未登录访问页面 → 302 跳 `/login.html`；访问 `/v1` → 401。全局门禁在 `server.js` 一处（`createAuthGate`），鉴权逻辑集中在 `lib/auth.js`。
-- **会话双通道**：浏览器用 `ops_session` Cookie（`HttpOnly`）；机器客户端用 `Authorization: Bearer <token>`（token 来自 `/v1/auth/login` 返回体）。口令用内置 `crypto` scrypt 哈希，无第三方依赖。
-- **采集端(harness)**：因 `/v1` 全量保护，采集端需先 `POST /v1/auth/login` 取 token，再在 `POST /v1/events` 带 `Authorization: Bearer <token>`；遇 401 重新登录。建议由管理员新建一个普通用户（如 `collector`）供采集端使用。
+- **保护范围**：**只保护 web 看板**——看板页面与查询/账号接口（`/v1/stats/*`、`/v1/export/*`、`/v1/auth/users*` 等）都要求登录会话；未登录访问页面 → 302 跳 `/login.html`，访问受保护 `/v1` → 401。**采集端上报 `POST /v1/events` 完全开放、无需鉴权**（内网即信任，cancong 客户端不带任何凭据，接入无需改动）。白名单还含 `/healthz`、`/login.html`、`POST /v1/auth/login`。全局门禁在 `server.js` 一处（`createAuthGate`），逻辑集中在 `lib/auth.js`。
+- **会话**：浏览器登录后用 `ops_session` Cookie（`HttpOnly`）访问看板；脚本化访问受保护接口时可选用 `Authorization: Bearer <token>`（token 来自 `/v1/auth/login` 返回体）。口令用内置 `crypto` scrypt 哈希，无第三方依赖。

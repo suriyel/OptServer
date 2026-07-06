@@ -3,7 +3,8 @@
 //
 // 装配顺序（语义即注释）：
 //   json body(1mb) → /healthz（门禁之前，探活永不受鉴权影响）
-//   → 全局门禁 createAuthGate（未登录：页面→302 login.html、/v1→401；含 static）
+//   → 全局门禁 createAuthGate（只保护看板：未登录页面→302 login.html、受保护 /v1→401；
+//     白名单含 POST /v1/events 采集上报、/healthz、/login.html、/v1/auth/login；含 static）
 //   → /v1 auth 路由（/auth/login 由门禁白名单放行）→ ingest / stats / export 路由
 //   → public/ 静态看板（仅登录后可达）→ /v1 JSON 404 → 错误兜底。
 //

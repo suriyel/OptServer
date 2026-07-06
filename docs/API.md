@@ -2,7 +2,7 @@
 
 > 双端唯一契约。客户端(遥测上报)与看板(数据消费)都以本文件为准。
 > 所有响应统一 `{ ok: boolean, ... }`；成功查询为 `{ ok: true, data: {...} }`，失败为 `{ ok: false, error: "..." }`。
-> Base URL 默认 `http://<host>:5900`。**需登录鉴权**：除 `/healthz`、`/login.html`、`POST /v1/auth/login` 外，所有页面与 `/v1` 接口都要求会话——浏览器带 `ops_session` Cookie，机器客户端(采集端)带 `Authorization: Bearer <token>`(token 来自 `/v1/auth/login` 返回体)。全局门禁在 `server.js::createAuthGate`，逻辑收敛在 `lib/auth.js`；账号/登录端点与预置管理员见 [README「登录鉴权」](../README.md#登录鉴权)。
+> Base URL 默认 `http://<host>:5900`。**上报接口 `POST /v1/events` 开放**（内网即信任，采集端不带任何凭据）；**看板页面与其余 `/v1` 接口需登录**——浏览器带 `ops_session` Cookie，脚本可选用 `Authorization: Bearer <token>`(token 来自 `/v1/auth/login` 返回体)。全局门禁在 `server.js::createAuthGate`，逻辑收敛在 `lib/auth.js`；账号/登录端点与预置管理员见 [README「登录鉴权」](../README.md#登录鉴权)。
 
 ## 目录
 
