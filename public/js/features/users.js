@@ -6,6 +6,7 @@ import { getStats } from '../core/api.js';
 import { escapeHtml, fmtInt, fmtDuration } from '../core/fmt.js';
 import { rangeParams } from '../core/range.js';
 import { makeChart, rankedBar, EC } from '../core/echarts.js';
+import { downloadCsv } from '../core/download.js';
 
 const METRICS = [
   { value: 'sessions', label: '会话数', color: EC.amber, fmt: fmtInt },
@@ -31,7 +32,13 @@ export function init(el) {
       </div>
       <div class="echart echart-tall" id="us-chart"></div>
     </div>
-    <div class="panel"><h3>明细</h3><div id="us-table"></div></div>
+    <div class="panel">
+      <div class="panel-head">
+        <h3>明细</h3>
+        <button class="export-btn" id="us-export">导出 CSV</button>
+      </div>
+      <div id="us-table"></div>
+    </div>
     <div class="error-box" id="us-error"></div>`;
   chart = makeChart(/** @type {HTMLElement} */ (el.querySelector('#us-chart')));
   el.querySelector('#us-seg').addEventListener('click', (e) => {
@@ -41,6 +48,8 @@ export function init(el) {
     el.querySelectorAll('#us-seg button').forEach((x) => x.classList.toggle('on', /** @type {HTMLElement} */ (x).dataset.m === metric));
     refresh();
   });
+  // 导出全部用户 + 全部指标列（后端忽略 metric，与 Top10 视图无关）
+  el.querySelector('#us-export').addEventListener('click', () => downloadCsv('users', rangeParams()));
 }
 
 export async function refresh() {

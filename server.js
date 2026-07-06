@@ -18,6 +18,7 @@ const express = require('express');
 const { openDb } = require('./lib/db');
 const { createIngestRouter } = require('./lib/ingest');
 const { createStatsRouter } = require('./lib/stats');
+const { createExportRouter } = require('./lib/export');
 
 function createApp(opts) {
   const dbPath = (opts && opts.dbPath) || process.env.OPS_DB_PATH || path.join(__dirname, 'data', 'ops.db');
@@ -32,6 +33,7 @@ function createApp(opts) {
   app.use('/v1', function authMiddleware(req, res, next) { next(); });
   app.use('/v1', createIngestRouter(dao, { nowFn }));
   app.use('/v1', createStatsRouter(dao, { nowFn }));
+  app.use('/v1', createExportRouter(dao, { nowFn })); // 须在 static / /v1 404 之前
 
   app.use(express.static(path.join(__dirname, 'public')));
   app.use('/v1', (req, res) => res.status(404).json({ ok: false, error: 'not found' }));

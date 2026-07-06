@@ -190,6 +190,15 @@ main { position: relative; z-index: 1; max-width: 1280px; margin: 0 auto; paddin
 .metric-seg button:hover { color: var(--text-2); }
 .metric-seg button.on { background: var(--elev); color: var(--amber); box-shadow: 0 0 0 1px var(--border) inset; }
 
+/* ---- 导出 CSV 按钮（面板头右侧） ---- */
+.export-btn {
+  background: var(--panel-2); color: var(--text-2);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 5px 12px; font-family: var(--font-mono); font-size: var(--fs-xs);
+  cursor: pointer; transition: border-color .15s, color .15s;
+}
+.export-btn:hover { border-color: var(--amber-dim); color: var(--amber); }
+
 /* ---- 表格 ---- */
 table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
 th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border-soft); }

@@ -6,6 +6,7 @@ import { getStats } from '../core/api.js';
 import { escapeHtml, fmtInt, fmtPct, fmtLocalFromIso } from '../core/fmt.js';
 import { EC as COLORS } from '../core/echarts.js';
 import { rangeParams } from '../core/range.js';
+import { downloadCsv } from '../core/download.js';
 
 /** @type {HTMLElement} */ let root;
 
@@ -16,8 +17,16 @@ export function init(el) {
       <div class="panel"><h3>失败类型分布</h3><div id="fa-kinds"></div></div>
       <div class="panel"><h3>按版本失败率（失败数 / run 数）</h3><div id="fa-versions"></div></div>
     </div>
-    <div class="panel"><h3>最近失败事件（最多 100 条）</h3><div id="fa-recent"></div></div>
+    <div class="panel">
+      <div class="panel-head">
+        <h3>最近失败事件（最多 100 条）</h3>
+        <button class="export-btn" id="fa-export">导出 CSV</button>
+      </div>
+      <div id="fa-recent"></div>
+    </div>
     <div class="error-box" id="fa-error"></div>`;
+  // 导出范围内全部失败事件明细（突破页面 100 条上限）
+  el.querySelector('#fa-export').addEventListener('click', () => downloadCsv('failures', rangeParams()));
 }
 
 export async function refresh() {

@@ -6,6 +6,7 @@ import { getStats } from '../core/api.js';
 import { escapeHtml, fmtInt, fmtDuration } from '../core/fmt.js';
 import { rangeParams } from '../core/range.js';
 import { makeChart, stackedBar, rankedBar, EC } from '../core/echarts.js';
+import { downloadCsv } from '../core/download.js';
 
 const CHART_TOP = 12; // 图表最多展示前 N 个工作流（表格展示全部）
 
@@ -46,7 +47,13 @@ export function init(el) {
       </div>
       <div class="echart echart-tall" id="bp-chart"></div>
     </div>
-    <div class="panel"><h3>明细</h3><div id="bp-table"></div></div>
+    <div class="panel">
+      <div class="panel-head">
+        <h3>明细</h3>
+        <button class="export-btn" id="bp-export">导出 CSV</button>
+      </div>
+      <div id="bp-table"></div>
+    </div>
     <div class="error-box" id="bp-error"></div>`;
   chart = makeChart(/** @type {HTMLElement} */ (el.querySelector('#bp-chart')));
   el.querySelector('#bp-seg').addEventListener('click', (e) => {
@@ -63,6 +70,7 @@ export function init(el) {
     else { sortKey = th.dataset.key; sortDesc = true; }
     renderTable();
   });
+  el.querySelector('#bp-export').addEventListener('click', () => downloadCsv('blueprints', rangeParams()));
 }
 
 export async function refresh() {

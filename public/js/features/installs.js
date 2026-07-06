@@ -4,6 +4,7 @@
 
 import { getStats } from '../core/api.js';
 import { escapeHtml, fmtLocalFromIso, fmtAgo } from '../core/fmt.js';
+import { downloadCsv } from '../core/download.js';
 
 const ONLINE_MS = 10 * 60 * 1000;
 
@@ -28,7 +29,10 @@ export function init(el) {
   root = el;
   el.innerHTML = `
     <div class="panel">
-      <h3 id="in-title">实例明细</h3>
+      <div class="panel-head">
+        <h3 id="in-title">实例明细</h3>
+        <button class="export-btn" id="in-export">导出 CSV</button>
+      </div>
       <input class="filter-input" id="in-filter" placeholder="过滤：用户 / 主机 / 版本…">
       <div id="in-table"></div>
     </div>
@@ -44,6 +48,8 @@ export function init(el) {
     else { sortKey = th.dataset.key; sortDesc = true; }
     renderTable();
   });
+  // 导出全部实例（服务端全量，不受前端过滤框影响）
+  el.querySelector('#in-export').addEventListener('click', () => downloadCsv('installs'));
 }
 
 export async function refresh() {
