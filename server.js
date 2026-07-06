@@ -2,14 +2,19 @@
 // server.js —— cancong-ops 入口：Express 单进程装配 + 生命周期。
 //
 // 装配顺序（语义即注释）：
-//   json body(1mb) → /healthz（auth 之前，探活永不受未来鉴权影响）
-//   → /v1 authMiddleware 空实现（Q8：内网不鉴权；将来加 token 只改这一处）
-//   → ingest / stats 路由 → public/ 静态看板 → /v1 JSON 404 → 错误兜底。
+//   json body(1mb) → /healthz（门禁之前，探活永不受鉴权影响）
+//   → 全局门禁 createAuthGate（未登录：页面→302 login.html、/v1→401；含 static）
+//   → /v1 auth 路由（/auth/login 由门禁白名单放行）→ ingest / stats / export 路由
+//   → public/ 静态看板（仅登录后可达）→ /v1 JSON 404 → 错误兜底。
 //
 // env（README 有表）：
 //   PORT                监听端口，默认 5900（设计文档 §7.1）
 //   OPS_DB_PATH         SQLite 路径，默认 ./data/ops.db（目录自动创建）
 //   OPS_RETENTION_DAYS  events 原始表保留天数，默认 90
+//   OPS_ADMIN_USER      预置管理员用户名，默认 admin（仅首次无 admin 时生效）
+//   OPS_ADMIN_PASSWORD  预置管理员初始密码，缺省 admin123（用默认时启动打印告警）
+//   OPS_SESSION_DAYS    登录会话有效期天数，默认 7
+//   OPS_SECURE_COOKIE   =1 时会话 Cookie 带 Secure（HTTPS 部署用），默认关
 // 时区不做 env：day 归日依赖部署机 TZ（systemd 单元钉 TZ=Asia/Shanghai）。
 
 const path = require('path');
@@ -19,18 +24,23 @@ const { openDb } = require('./lib/db');
 const { createIngestRouter } = require('./lib/ingest');
 const { createStatsRouter } = require('./lib/stats');
 const { createExportRouter } = require('./lib/export');
+const { seedAdmin, createAuthGate, createAuthRouter } = require('./lib/auth');
 
 function createApp(opts) {
-  const dbPath = (opts && opts.dbPath) || process.env.OPS_DB_PATH || path.join(__dirname, 'data', 'ops.db');
-  const nowFn = (opts && opts.nowFn) || (() => new Date());
+  opts = opts || {};
+  const dbPath = opts.dbPath || process.env.OPS_DB_PATH || path.join(__dirname, 'data', 'ops.db');
+  const nowFn = opts.nowFn || (() => new Date());
+  const authGate = opts.authGate !== false; // 默认开启（生产鉴权）；测试夹具显式关闭以兼容旧用例
   const { db, dao, close } = openDb(dbPath);
+  seedAdmin(dao, { adminUser: opts.adminUser, adminPassword: opts.adminPassword, nowFn });
 
   const app = express();
   app.use(express.json({ limit: '1mb' })); // ≤500 事件/批 × ~1KB ≈ 500KB，2 倍余量
 
-  app.get('/healthz', (req, res) => res.json({ ok: true }));
+  app.get('/healthz', (req, res) => res.json({ ok: true })); // 门禁前，探活永不受鉴权影响
 
-  app.use('/v1', function authMiddleware(req, res, next) { next(); });
+  if (authGate) app.use(createAuthGate(dao, { nowFn })); // 全局门禁（含 static）；将来改鉴权只动这里与 lib/auth.js
+  app.use('/v1', createAuthRouter(dao, { nowFn }));       // /auth/login(门禁放行) /auth/me /auth/users ...
   app.use('/v1', createIngestRouter(dao, { nowFn }));
   app.use('/v1', createStatsRouter(dao, { nowFn }));
   app.use('/v1', createExportRouter(dao, { nowFn })); // 须在 static / /v1 404 之前

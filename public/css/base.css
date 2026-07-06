@@ -124,6 +124,74 @@ select:hover { border-color: var(--amber-dim); }
 select:focus { outline: none; border-color: var(--amber); }
 .muted, #refresh-hint { color: var(--muted); font-size: var(--fs-2xs); letter-spacing: 0.04em; }
 
+/* ---- 顶栏用户菜单 ---- */
+.user-menu { position: relative; }
+.user-btn {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--panel-2); color: var(--text-2);
+  border: 1px solid var(--border); border-radius: 8px; padding: 5px 9px;
+  font-family: var(--font-mono); font-size: var(--fs-xs); cursor: pointer;
+  transition: border-color .15s, color .15s;
+}
+.user-btn:hover { border-color: var(--amber-dim); color: var(--text); }
+.user-avatar {
+  width: 20px; height: 20px; border-radius: 6px; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, var(--amber), var(--amber-dim)); color: #1a1204;
+  font-size: var(--fs-2xs); font-weight: 600;
+}
+.user-btn .caret { color: var(--muted); font-size: 10px; }
+.user-dropdown {
+  position: absolute; right: 0; top: calc(100% + 8px); z-index: 20; min-width: 168px;
+  background: var(--elev); border: 1px solid var(--border); border-radius: 10px;
+  padding: 6px; box-shadow: 0 14px 40px -16px rgba(0,0,0,0.8);
+}
+.user-dropdown-head { padding: 4px 8px 8px; border-bottom: 1px solid var(--border-soft); margin-bottom: 6px; }
+.user-dropdown .menu-item {
+  display: block; width: 100%; text-align: left;
+  background: transparent; border: none; color: var(--text-2);
+  font-family: var(--font-sans); font-size: var(--fs-sm); padding: 7px 9px;
+  border-radius: 7px; cursor: pointer; transition: background .12s, color .12s;
+}
+.user-dropdown .menu-item:hover { background: rgba(255,255,255,0.04); color: var(--text); }
+.user-dropdown .menu-item.danger:hover { color: var(--red); }
+.pill-admin { color: var(--amber); border-color: var(--amber-dim); }
+
+/* ---- 弹层（账号管理 / 修改密码） ---- */
+.modal {
+  position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center;
+  padding: 24px; background: rgba(6,8,11,0.66); backdrop-filter: blur(3px);
+  animation: modal-fade .16s ease-out;
+}
+@keyframes modal-fade { from { opacity: 0; } to { opacity: 1; } }
+.modal-card {
+  width: 460px; max-width: 100%; max-height: 86vh; overflow: auto;
+  background: linear-gradient(180deg, var(--panel), var(--bg-2));
+  border: 1px solid var(--border); border-radius: 14px;
+  box-shadow: 0 24px 70px -26px rgba(0,0,0,0.8);
+  animation: rise .22s cubic-bezier(.22,.61,.36,1) backwards;
+}
+.modal-head { display: flex; align-items: center; justify-content: space-between; padding: 15px 18px; border-bottom: 1px solid var(--border-soft); }
+.modal-head h3 {
+  margin: 0; font-size: var(--fs-sm); color: var(--text-2); font-weight: 500;
+  letter-spacing: 0.05em; text-transform: uppercase; display: flex; align-items: center; gap: 9px;
+}
+.modal-head h3::before { content: ''; width: 3px; height: 13px; background: var(--amber); border-radius: 2px; box-shadow: 0 0 6px rgba(240,168,48,0.5); }
+.modal-close {
+  background: transparent; border: none; color: var(--muted); cursor: pointer;
+  font-size: 15px; line-height: 1; padding: 4px 6px; border-radius: 6px; transition: color .12s, background .12s;
+}
+.modal-close:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+.modal-body { padding: 16px 18px 18px; }
+.acc-list { margin-bottom: 14px; }
+.acc-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.acc-form .filter-input { margin-bottom: 0; width: auto; flex: 1 1 140px; }
+.acc-form-col { display: flex; flex-direction: column; gap: 10px; }
+.acc-form-col .filter-input { margin-bottom: 0; width: 100%; }
+.acc-form-col .export-btn { align-self: flex-start; }
+.link-danger { background: transparent; border: none; color: var(--muted); cursor: pointer; font-family: var(--font-mono); font-size: var(--fs-xs); transition: color .12s; }
+.link-danger:hover { color: var(--red); }
+
 /* ---- 页面容器 ---- */
 main { position: relative; z-index: 1; max-width: 1280px; margin: 0 auto; padding: 26px 22px 60px; }
 .page { display: none; }

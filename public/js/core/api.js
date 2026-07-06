@@ -9,6 +9,7 @@
 export async function getStats(p, params) {
   const qs = params ? '?' + new URLSearchParams(params).toString() : '';
   const res = await fetch('/v1' + p + qs);
+  if (res.status === 401) { location.href = '/login.html'; throw new Error('unauthorized'); } // 会话过期→回登录
   if (!res.ok) throw new Error('HTTP ' + res.status);
   const body = await res.json();
   if (!body || body.ok !== true) throw new Error((body && body.error) || 'api error');

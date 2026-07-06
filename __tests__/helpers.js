@@ -33,9 +33,18 @@ function listenApp(t, app) {
 }
 
 // 完整 app 夹具：临时库 + createApp + 随机端口；t.after 顺序 = server close → db close → 删目录
+// 鉴权默认关（authGate:false）——旧特性用例不带凭据直打 /v1，保持免鉴权；
+// 鉴权自身用例传 { auth: true } 开启全局门禁（可选 adminUser/adminPassword 定制预置管理员）。
 async function makeApp(t, opts) {
+  opts = opts || {};
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ops-'));
-  const handle = createApp({ dbPath: path.join(dir, 'test.db'), nowFn: opts && opts.nowFn });
+  const handle = createApp({
+    dbPath: path.join(dir, 'test.db'),
+    nowFn: opts.nowFn,
+    authGate: !!opts.auth,
+    adminUser: opts.adminUser,
+    adminPassword: opts.adminPassword || 'admin123', // 显式传值走非告警分支，保持测试输出干净
+  });
   const { baseUrl } = await listenApp(t, handle.app);
   t.after(() => {
     handle.close();

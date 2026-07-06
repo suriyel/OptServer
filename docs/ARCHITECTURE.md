@@ -26,13 +26,13 @@ deploy/              cancong-ops.service（systemd 单元）
 __tests__/           node:test 确定性测试（49 用例）
 ```
 
-**装配顺序**(`server.js::createApp`)：`express.json(1mb)` → `/healthz` → `/v1` 空 authMiddleware → ingest/stats 路由 → `public/` 静态 → `/v1` JSON 404 → 错误兜底中间件。
+**装配顺序**(`server.js::createApp`)：`express.json(1mb)` → `/healthz` → 全局门禁 `createAuthGate`(未登录页面→302 `login.html`、`/v1`→401；白名单 `/healthz`+`/login.html`+`POST /v1/auth/login`) → `/v1` auth 路由(登录/账号) → ingest/stats 路由 → `public/` 静态(仅登录后可达) → `/v1` JSON 404 → 错误兜底中间件。鉴权逻辑收敛在 `lib/auth.js`（scrypt 口令 + 会话令牌，Cookie/Bearer 双通道）。
 
 **生命周期**：`require.main` 时才 `listen` + `startScheduler` + 注册 SIGINT/SIGTERM。优雅退出逻辑抽为 `gracefulShutdown(scheduler, srv, close, exitFn, timeoutMs)`——停调度器 → `srv.close` 收尾 → 关库退出，3s 兜底强退。测试 `require` 不触发 `listen`。
 
 ## 3. 存储 schema
 
-8 张表(`lib/db.js` 中 `DDL_V1`)，通过 `PRAGMA user_version` 迁移。
+10 张表(`lib/db.js`：`DDL_V1` 基础 8 张 + `DDL_V2` 鉴权 2 张)，通过 `PRAGMA user_version` 迁移(当前 v2)。
 
 | 表 | 作用 | 保留 |
 |----|------|------|
@@ -44,6 +44,8 @@ __tests__/           node:test 确定性测试（49 用例）
 | `daily_blueprint` | **工作流维度日聚合(runs/失败/active_ms/interruptions/token)** | 永久 |
 | `hb_seen` | 心跳幂等去重表 | 7 天 |
 | `meta` | 夜间 job 记账(last_job_day / last_job_at / last_job_result) | 永久 |
+| `accounts` | 登录账号(scrypt 口令+role)；`ux_accounts_admin` partial unique 保证至多一个 admin | 永久 |
+| `sessions` | 登录会话(token→username，按 `expires_at` 惰性过期) | 会话期 |
 
 > 术语：**工作流** = 内部 `blueprint`/`blueprintId`（事件 `bp_run_*` 沿用既有契约名）。
 

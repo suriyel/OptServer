@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>登录 · 蚕丛运营看板</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230c0e12'/%3E%3Crect x='9' y='9' width='14' height='14' rx='3' transform='rotate(45 16 16)' fill='%23f0a830'/%3E%3C/svg%3E">
+  <!-- 自包含：登录页在门禁白名单内，不依赖被门禁拦截的 /css、/vendor 资源，故内联样式 + 系统字体 -->
+  <style>
+    :root {
+      --bg: #0c0e12; --panel: #14171d; --bg-2: #0f1217; --panel-2: #1a1e26;
+      --border: #262b34; --text: #dfe3e9; --text-2: #aab0bb; --muted: #7b828f; --dim: #565d69;
+      --amber: #f0a830; --amber-dim: #c9892a; --red: #e8615f;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --sans: 'Microsoft YaHei', 'PingFang SC', 'Segoe UI', system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; color: var(--text); font: 14px/1.55 var(--sans);
+      display: flex; align-items: center; justify-content: center;
+      background:
+        radial-gradient(1100px 500px at 78% -8%, rgba(240,168,48,0.08), transparent 60%),
+        radial-gradient(900px 480px at 8% 108%, rgba(56,214,196,0.05), transparent 55%),
+        var(--bg);
+    }
+    body::before {
+      content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+      background-size: 44px 44px;
+      mask-image: radial-gradient(ellipse 100% 80% at 50% 0%, #000 30%, transparent 90%);
+    }
+    .login-card {
+      position: relative; z-index: 1; width: 340px; padding: 30px 30px 26px;
+      background: linear-gradient(180deg, var(--panel), var(--bg-2));
+      border: 1px solid var(--border); border-radius: 14px;
+      box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset, 0 20px 60px -24px rgba(0,0,0,0.7);
+    }
+    .brand { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 600; letter-spacing: 0.06em; }
+    .brand::before {
+      content: ''; width: 10px; height: 10px; border-radius: 2px; transform: rotate(45deg);
+      background: var(--amber); box-shadow: 0 0 12px var(--amber);
+    }
+    .brand-sub { color: var(--muted); font-size: 11px; font-weight: 400; letter-spacing: 0.16em; text-transform: uppercase; }
+    .subtitle { color: var(--muted); font-size: 12px; letter-spacing: 0.04em; margin: 6px 0 22px; }
+    label { display: block; color: var(--text-2); font-size: 12px; letter-spacing: 0.04em; margin: 0 0 6px; }
+    input {
+      width: 100%; margin-bottom: 15px; padding: 9px 12px;
+      background: var(--panel-2); color: var(--text); font: 13px var(--mono);
+      border: 1px solid var(--border); border-radius: 8px; transition: border-color .15s;
+    }
+    input:focus { outline: none; border-color: var(--amber); }
+    input::placeholder { color: var(--dim); }
+    button {
+      width: 100%; margin-top: 6px; padding: 10px; cursor: pointer;
+      background: linear-gradient(135deg, var(--amber), var(--amber-dim)); color: #1a1204;
+      font: 600 14px var(--sans); letter-spacing: 0.06em;
+      border: none; border-radius: 8px; transition: filter .15s, opacity .15s;
+    }
+    button:hover { filter: brightness(1.06); }
+    button:disabled { opacity: 0.55; cursor: default; }
+    .login-error { color: var(--red); font-size: 12px; min-height: 17px; margin-bottom: 6px; }
+  </style>
+</head>
+<body>
+  <form class="login-card" id="login-form" autocomplete="on">
+    <div class="brand">蚕丛 <span class="brand-sub">运营看板</span></div>
+    <div class="subtitle">请登录以访问运营看板</div>
+    <label for="username">用户名</label>
+    <input id="username" name="username" placeholder="用户名" autocomplete="username" autofocus required>
+    <label for="password">密码</label>
+    <input id="password" name="password" type="password" placeholder="密码" autocomplete="current-password" required>
+    <div class="login-error" id="login-error"></div>
+    <button type="submit" id="login-btn">登 录</button>
+  </form>
+  <script>
+    const form = document.getElementById('login-form');
+    const errEl = document.getElementById('login-error');
+    const btn = document.getElementById('login-btn');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errEl.textContent = '';
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      if (!username || !password) { errEl.textContent = '请输入用户名与密码'; return; }
+      btn.disabled = true;
+      try {
+        const res = await fetch('/v1/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+        const body = await res.json().catch(() => null);
+        if (res.ok && body && body.ok) {
+          location.href = '/';
+          return;
+        }
+        errEl.textContent = (body && body.error === 'invalid credentials') ? '用户名或密码错误'
+          : (body && body.error === 'missing credentials') ? '请输入用户名与密码'
+          : ((body && body.error) || '登录失败');
+      } catch (_) {
+        errEl.textContent = '网络错误，请重试';
+      }
+      btn.disabled = false;
+    });
+  </script>
+</body>
+</html>

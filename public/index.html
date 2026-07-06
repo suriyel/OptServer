@@ -26,6 +26,19 @@
         <option value="90">近 90 天</option>
       </select>
       <span id="refresh-hint" class="muted"></span>
+      <div class="user-menu" id="user-menu" hidden>
+        <button class="user-btn" id="user-btn" aria-haspopup="true" aria-expanded="false">
+          <span class="user-avatar" id="user-avatar"></span>
+          <span id="user-name">—</span>
+          <span class="caret">▾</span>
+        </button>
+        <div class="user-dropdown" id="user-dropdown" hidden>
+          <div class="user-dropdown-head"><span class="pill" id="user-role"></span></div>
+          <button class="menu-item" id="menu-accounts" hidden>账号管理</button>
+          <button class="menu-item" id="menu-password">修改密码</button>
+          <button class="menu-item danger" id="menu-logout">退出登录</button>
+        </div>
+      </div>
     </div>
   </header>
   <main id="main">

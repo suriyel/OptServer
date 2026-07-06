@@ -24,7 +24,7 @@
 | body 上限 | **≤ 1 MB**（超过 `413`） |
 | 成功响应 | `200 { ok:true, accepted, dup, rejected? }` |
 | 健康检查 | `GET {endpoint}/healthz → {ok:true}` |
-| 鉴权 | 无（内网即信任） |
+| 鉴权 | **需登录**：先 `POST {endpoint}/v1/auth/login` `{username,password}` 取返回体 `token`，再在每个请求带 `Authorization: Bearer <token>`；遇 `401` 重新登录。建议由管理员在看板「账号管理」新建一个普通账号（如 `collector`）供采集端专用 |
 
 - **幂等**：服务器按 `eventId` 去重（`INSERT OR IGNORE`）。客户端**每个事件生成一次稳定 `eventId`（uuid），重发时复用同一个** → 断网补发天然安全，无需精确一次投递。`accepted`=首次入库数，`dup`=被去重数，`rejected`=结构非法被跳过数。
 - **非法事件不整批拒绝**：单条缺字段/超长只跳过自己（计入 `rejected`），其余照收。但客户端应尽量发合规事件。
