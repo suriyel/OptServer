@@ -10,9 +10,10 @@ import * as blueprints from './features/blueprints.js';
 import * as users from './features/users.js';
 import * as failures from './features/failures.js';
 import * as installs from './features/installs.js';
+import * as release from './features/release.js';
 
 const REFRESH_MS = 60 * 1000;
-const PAGES = { overview, trend, blueprints, users, failures, installs };
+const PAGES = { overview, trend, blueprints, users, failures, installs, release };
 /** @type {Record<string, boolean>} */
 const inited = {};
 let active = '';
@@ -68,6 +69,10 @@ async function initAuthUI() {
     const acc = document.getElementById('menu-accounts');
     acc.hidden = false;
     acc.addEventListener('click', () => { setOpen(false); openAccounts(); });
+  } else {
+    // 版本发布是运维动作（上传/发布服务端 requireAdmin），非管理员藏页签少一层困惑
+    const rel = document.getElementById('tab-release');
+    if (rel) rel.style.display = 'none';
   }
   document.getElementById('menu-password').addEventListener('click', () => { setOpen(false); openChangePassword(); });
   document.getElementById('menu-logout').addEventListener('click', async () => {

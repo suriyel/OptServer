@@ -333,3 +333,16 @@ td { color: var(--text-2); }
 .legend .legend-item { display: flex; align-items: center; gap: 9px; }
 .legend .swatch { width: 11px; height: 11px; border-radius: 3px; flex: none; }
 .legend .legend-val { color: var(--muted); }
+
+/* ---- 版本发布页（features/release.js） ---- */
+.rel-form { display: flex; flex-direction: column; gap: 14px; font-size: var(--fs-sm); }
+.rel-form input, .rel-form textarea { background: var(--panel-2); color: var(--text-2);
+  border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font-size: var(--fs-sm); }
+.rel-variant { display: flex; align-items: center; gap: 12px; }
+.rel-variant .rel-vname { font-family: var(--font-mono); min-width: 90px; color: var(--text-2); }
+.rel-variant .rel-status { color: var(--muted); }
+.rel-form button, .rel-cur button { padding: 5px 16px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--elev); color: var(--text-2); cursor: pointer; font-size: var(--fs-sm); }
+.rel-form button:disabled { opacity: 0.45; cursor: not-allowed; }
+.rel-cur { display: flex; align-items: center; gap: 14px; }
+.rel-cur .rel-cur-ver { font-family: var(--font-mono); font-size: var(--fs-lg); color: var(--text); }

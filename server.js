@@ -16,6 +16,7 @@
 //   OPS_ADMIN_PASSWORD  预置管理员初始密码，缺省 admin123（用默认时启动打印告警）
 //   OPS_SESSION_DAYS    登录会话有效期天数，默认 7
 //   OPS_SECURE_COOKIE   =1 时会话 Cookie 带 Secure（HTTPS 部署用），默认关
+//   OPS_RELEASES_DIR    应用更新发布区目录，默认 ./releases（磁盘规划见 README：3 版本 ≈ 1.2GB）
 // 时区不做 env：day 归日依赖部署机 TZ（systemd 单元钉 TZ=Asia/Shanghai）。
 
 const path = require('path');
@@ -25,6 +26,7 @@ const { openDb } = require('./lib/db');
 const { createIngestRouter } = require('./lib/ingest');
 const { createStatsRouter } = require('./lib/stats');
 const { createExportRouter } = require('./lib/export');
+const { createUpdateRouter } = require('./lib/update');
 const { seedAdmin, createAuthGate, createAuthRouter } = require('./lib/auth');
 
 function createApp(opts) {
@@ -45,6 +47,9 @@ function createApp(opts) {
   app.use('/v1', createIngestRouter(dao, { nowFn }));
   app.use('/v1', createStatsRouter(dao, { nowFn }));
   app.use('/v1', createExportRouter(dao, { nowFn })); // 须在 static / /v1 404 之前
+  // 应用自动更新发布面（latest/download 免鉴权经门禁白名单；upload 是 octet-stream raw
+  // stream——express.json 只拦 application/json，不会吃掉它的 body）
+  app.use('/v1', createUpdateRouter({ releasesDir: opts.releasesDir || process.env.OPS_RELEASES_DIR, nowFn }));
 
   app.use(express.static(path.join(__dirname, 'public')));
   app.use('/v1', (req, res) => res.status(404).json({ ok: false, error: 'not found' }));

@@ -11,6 +11,7 @@
   - [事件类型与 payload](#事件类型与-payload)
 - [健康检查 `GET /healthz`](#健康检查-get-healthz)
 - [查询接口 `GET /v1/stats/*`](#查询接口-get-v1stats)
+- [应用自动更新 `/v1/update/*`](#应用自动更新-v1update)
 - [错误响应](#错误响应)
 
 ---
@@ -221,6 +222,51 @@ GET /healthz → 200 { "ok": true }
 ```
 
 ---
+
+## 应用自动更新 `/v1/update/*`
+
+客户端设计权威源：TechDemos `docs/APP-AUTO-UPDATE-DESIGN.md`（§5 契约、§7 服务端设计）。
+存储在文件系统 `releases/`（`OPS_RELEASES_DIR` 可改），清单落 `index.json`——与遥测库解耦，救急可直接 `cat`/手改。
+
+### 免鉴权（与 `POST /v1/events` 同档：客户端没有账号，内网即信任）
+
+**`GET /v1/update/latest`** — 有已发布版本 → `200`：
+
+```jsonc
+{
+  "schemaVersion": 1,
+  "version": "0.0.4",
+  "pubDate": "2026-08-05T10:00:00.000Z",
+  "notes": "…管理员填写的更新说明…",
+  "minSupported": "",              // 空串 = 不设版本地板（默认）；非空则低于此版本的客户端被阻断
+  "packages": {
+    "slim":       { "file": "cancong-portable-0.0.4.exe",            "size": 115434858, "sha256": "…64hex…" },
+    "with-linux": { "file": "cancong-portable-0.0.4-with-linux.exe", "size": 273685960, "sha256": "…64hex…" }
+  }
+}
+```
+
+尚无已发布版本 → `204 No Content`（不是 404，避免与路由错误混淆）。客户端只认 `packages[variant].file`，绝不自己拼文件名。
+
+**`GET /v1/update/download/:file`** — `res.sendFile` 原生支持 `Range`（断点续传）。`:file` 须匹配 `/^[A-Za-z0-9._-]+$/` 且命中当前已发布清单，否则 `404`（防路径穿越；已下架版本即刻 404）。
+
+### 鉴权内 + requireAdmin（运维动作——任何人都能推包等于任何人都能给全公司装东西）
+
+| 端点 | 说明 |
+|---|---|
+| `POST /v1/update/upload?variant=slim\|with-linux&version=<ver>[&filename=]` | body 为 raw octet-stream；边写边算 sha256 落 `staging/<ver>/<variant>.exe` + 同名 `.json` 边车；同 (ver,variant) 重传直接覆盖（幂等） |
+| `GET /v1/update/drafts` | 草稿区各版本各变体就位情况 + 当前已发布 + 可回滚历史（登录即可读，非 admin 也可看） |
+| `POST /v1/update/publish` | body `{ version, notes, minSupported }`。服务端自检：①两变体齐备 ②版本合法三段数字且高于当前已发布 ③大小/sha256 复算与边车一致 ④地板为空或合法且 ≤ version。通过则 rename 进 `published/<ver>/`（文件名归一为无空格 slug）并重写 `index.json` |
+| `POST /v1/update/unpublish` | 下架当前版本（删其文件），回退到上一个文件仍在的已发布版本；没有则清空（`/latest` 回 204） |
+| `DELETE /v1/update/draft/:version/:variant` | 删草稿 |
+
+发布区保留最近 **3** 个版本的文件供回滚，更旧自动清理（磁盘规划：3 × ~370MB ≈ 1.2GB，见 README）。
+
+### `update_apply` 事件
+
+客户端在升级终局（启动自检判定成功/最终失败）上报，payload：
+`{ from, to, variant, ok, attempts, reason? }`（`reason` 仅 `ok:false` 时携带：`sha_mismatch` · `sfx_exit_nonzero` · `sfx_timeout` · `version_mismatch` · `other_instance` · `parent_alive` · `download_failed` · `disk_full` · `unknown`）。
+ingest：`ok:false` 计入 `daily_fail`（kind = `update:<reason>`）→ 失败页 kind 分布可见；`ok:true` 只存原始（升级铺开进度看 installs 的 `appVersion` 分布即可）。「最近失败事件」列表同时列出 `update_apply{ok:false}`（响应行带 `type` 字段区分）。
 
 ## 错误响应
 

@@ -44,6 +44,7 @@ async function makeApp(t, opts) {
     authGate: !!opts.auth,
     adminUser: opts.adminUser,
     adminPassword: opts.adminPassword || 'admin123', // 显式传值走非告警分支，保持测试输出干净
+    releasesDir: opts.releasesDir || path.join(dir, 'releases'), // 更新发布区隔离进临时目录
   });
   const { baseUrl } = await listenApp(t, handle.app);
   t.after(() => {
