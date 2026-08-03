@@ -55,6 +55,8 @@ curl -s -X POST http://localhost:5900/v1/events -H 'content-type: application/js
 
 `day` 归日在 ingest 写入时按**进程本地时区**固化为列，此后聚合、清理、查询只认该列。部署机必须钉死时区（systemd 单元里 `Environment=TZ=Asia/Shanghai`）；**上线后不要改 TZ**，否则新旧数据的日界口径不一致。
 
+> ⚠️ **改 TZ 的破坏性将随「作息维度」上线而升级**（规划中的时段分布，见 [docs/TIME-DIMENSION-PLAN.md](./docs/TIME-DIMENSION-PLAN.md)）。差别在于：`day` 是**写入时固化**的，改 TZ 只影响此后的新数据，历史行原样不动；而时段聚合的**回填是用运行时的当前 TZ 现算**的。于是改完 TZ 再重跑一次回填，会得到与增量积累结果**不同**的值——同一张表里混着两套小时口径，且从数据本身看不出来。结论不变：**TZ 一旦定下就不要改**；真要改，必须停服 → 改 TZ → 清空并整表重跑时段聚合，不能只补跑增量。
+
 ## 数据与运维
 
 - **存储**：`installs`（实例注册，心跳只 upsert 此表）、`events`（原始事件，滚动保留）、`daily_user` / `daily_tool` / `daily_fail`（日聚合，永久）、`hb_seen`（心跳幂等，7 天）、`meta`（job 记账）。SQL 全部收敛在 `lib/db.js`（PostgreSQL 迁移只动此文件；触发条件见设计文档 §8.4：实例 >5000 / 需 HA / 库 >20GB）。
@@ -93,8 +95,10 @@ GET  /v1/stats/versions    # 版本分布（近 30 天活跃实例）
 GET  /v1/stats/tools?from&to
 GET  /v1/stats/runs?from&to
 GET  /v1/stats/failures?from&to   # 类型分布、按版本失败率、最近失败（受 90 天保留窗约束）
-GET  /v1/stats/users/top?from&to&metric&limit  # 高频用户 Top N（metric 排序）
-GET  /v1/stats/blueprints?from&to # 各工作流 runs/失败/E2E/中断/token
+GET  /v1/stats/users/top?from&to&metric&limit  # 高频用户 Top N（metric 排序）；带环比 cur/prev
+GET  /v1/stats/blueprints?from&to # 各工作流 runs/失败/E2E/中断/token；带环比 cur/prev
+GET  /v1/stats/blueprints/series?id&from&to    # 单工作流逐日序列（详情面板下钻）
+GET  /v1/stats/users/series?user&host&from&to  # 单用户逐日序列（user/host 分开传）
 GET  /v1/stats/realtime?window=   # 近 24h 按分钟直查 events（实时视图）
 GET  /v1/installs          # 实例明细
 GET  /v1/export/{blueprints,users,failures,installs}?from&to  # CSV 导出（中文表头 + UTF-8 BOM）

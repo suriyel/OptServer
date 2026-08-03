@@ -3,7 +3,7 @@
 // · 按日期：沿用全局 range（7/30/90），x=日(M/D)。
 // · 实时：近 24h、1min 分桶（前端补零完整分钟轴、x=本地 HH:MM），60s 全局刷新拉新桶。
 
-import { getStats } from '../core/api.js';
+import { getStats, makeGuard } from '../core/api.js';
 import { fmtDuration, fmtInt } from '../core/fmt.js';
 import { makeChart, timeLine, timeBars, EC } from '../core/echarts.js';
 import { rangeParams } from '../core/range.js';
@@ -19,6 +19,14 @@ const MODES = [
 /** @type {HTMLElement} */ let root;
 /** @type {Record<string, any>} */ const charts = {};
 let mode = 'daily';
+/**
+ * 代际守卫。本页有**两个**乱序源，比其他页更容易翻车：
+ * · 切档位——90 天查询比 7 天慢，落地顺序与发起顺序相反；
+ * · 切模式——「按日期」的两个查询比「实时」慢时，日视图会后落地，
+ *   把标题、四张图全刷成日视图，而分段控件还高亮着「实时」。
+ * 两者都靠这一个守卫挡：只认最后发起的那次。
+ */
+const guard = makeGuard();
 
 export function init(el) {
   root = el;
@@ -53,9 +61,10 @@ export function init(el) {
 export async function refresh() {
   const errBox = root.querySelector('#tr-error');
   errBox.textContent = '';
+  const g = guard.next();
   try {
-    if (mode === 'realtime') await refreshRealtime();
-    else await refreshDaily();
+    if (mode === 'realtime') await refreshRealtime(g);
+    else await refreshDaily(g);
   } catch (e) {
     errBox.textContent = '加载失败：' + /** @type {Error} */ (e).message;
     throw e;
@@ -70,12 +79,13 @@ function setTitles(t) {
 }
 
 // ---- 按日期 ----
-async function refreshDaily() {
+async function refreshDaily(g) {
   const params = rangeParams();
   const [dau, runs] = await Promise.all([
     getStats('/stats/dau', params),
     getStats('/stats/runs', params),
   ]);
+  if (guard.stale(g)) return; // 期间已换档位/换模式，丢弃本次（标题与四张图一起丢，不能只丢一半）
   const x = dau.days.map((d) => mdLabel(d.day));
   root.querySelector('#tr-heading').textContent = '活动趋势';
   root.querySelector('#tr-hint').textContent = '';
@@ -101,8 +111,9 @@ async function refreshDaily() {
 }
 
 // ---- 实时（近 24h / 1min）----
-async function refreshRealtime() {
+async function refreshRealtime(g) {
   const d = await getStats('/stats/realtime', { window: String(RT_WINDOW) });
+  if (guard.stale(g)) return; // 期间已换模式，丢弃本次
   // 建完整分钟轴（补零）：从 now-window 到 now，key=UTC 分钟串，label=本地 HH:MM
   const nowMs = new Date(d.now).getTime();
   const startMs = nowMs - d.window * 60000;

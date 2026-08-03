@@ -144,9 +144,21 @@ function areaGrad(hex) {
     colorStops: [{ offset: 0, color: hex + '44' }, { offset: 1, color: hex + '02' }] };
 }
 
+// 末点「进行中」：区间末尾是今天时，那一天只过了一半，曲线必然往下掉。
+// 不标出来会被当成真的在崩——把末点压暗以示未完成。
+//
+// 文字说明刻意放在**图外**（调用方的标题行）：一格类目只有 30~40px 宽，
+// 图内 markArea 的标签在任何窄图/长区间下都会溢出被 grid 裁掉，靠不住。
+function dimLast(values) {
+  if (!values.length) return values;
+  const out = values.slice();
+  out[out.length - 1] = { value: out[out.length - 1], itemStyle: { opacity: 0.4 } };
+  return out;
+}
+
 /**
  * 多序列折线（x=时间标签）。series: [{ name, color, values, axis?:2, fmt?, area? }]
- * @param {{ categories:string[], series:any[], zoom?:boolean }} d
+ * @param {{ categories:string[], series:any[], zoom?:boolean, partialLast?:boolean }} d
  */
 export function timeLine(d) {
   const o = timeBase(d.categories, d.zoom);
@@ -159,7 +171,7 @@ export function timeLine(d) {
         formatter: right && right.fmt ? (v) => right.fmt(v) : undefined } })];
   }
   o.series = d.series.map((s) => ({
-    name: s.name, type: 'line', data: s.values,
+    name: s.name, type: 'line', data: d.partialLast ? dimLast(s.values) : s.values,
     yAxisIndex: s.axis === 2 ? 1 : 0,
     showSymbol: false, smooth: 0.2, sampling: 'lttb',
     lineStyle: { color: s.color, width: 2 }, itemStyle: { color: s.color },
@@ -172,13 +184,14 @@ export function timeLine(d) {
 
 /**
  * 纵向堆叠柱（x=时间标签，run 终态）。series: [{ name, color, values }]
- * @param {{ categories:string[], series:any[], zoom?:boolean }} d
+ * @param {{ categories:string[], series:any[], zoom?:boolean, partialLast?:boolean }} d
  */
 export function timeBars(d) {
   const o = timeBase(d.categories, d.zoom);
   o.tooltip = Object.assign(baseOption().tooltip, { trigger: 'axis' });
   o.series = d.series.map((s) => ({
-    name: s.name, type: 'bar', stack: 'total', data: s.values,
+    name: s.name, type: 'bar', stack: 'total',
+    data: d.partialLast ? dimLast(s.values) : s.values,
     itemStyle: { color: s.color }, emphasis: { focus: 'series' },
   }));
   return o;

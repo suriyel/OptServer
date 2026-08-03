@@ -10,6 +10,7 @@
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | 维护者 | 模块划分、存储 schema、索引设计、三个易错点解法、数据生命周期、看板与发布面 |
 | [DEPLOYMENT.md](./DEPLOYMENT.md) | 运维 | 环境、env、systemd、schema 迁移、日志、健康检查、备份与发布区、故障排查、PG 迁移条件 |
 | [CLIENT-HANDOFF.md](./CLIENT-HANDOFF.md) | 采集端(harness)开发者 | 客户端 server-telemetry 实现 & 联调清单：传输契约、事件/新字段来源、挂接点、开关、可靠性、联调步骤、验收 |
+| [TIME-DIMENSION-PLAN.md](./TIME-DIMENSION-PLAN.md) | 维护者 | 看板时间维度三期设计留档：P1 逐日下钻+环比(已落地) / P2 沉默天数 / P3 作息分布——含每个分叉的取舍与放弃项 |
 | [RELEASE-NOTES.md](./RELEASE-NOTES.md) | 全体 | 各版本变更记录 |
 
 ## 一分钟速览
@@ -18,7 +19,7 @@
 npm ci && npm start        # 启动，默认 http://localhost:5900
 curl localhost:5900/healthz            # 探活
 node scripts/seed-demo.js --db ./data/ops.db   # 灌演示数据
-npm test                   # 96 个单测
+npm test                   # 113 个单测
 npm run bench              # 700 万行查询压测
 npm run migrate -- --db ./data/ops.db          # 对已有库单独跑 schema 迁移（幂等）
 ```

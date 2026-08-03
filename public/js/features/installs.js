@@ -2,7 +2,7 @@
 // installs.js —— 实例页：明细表（表头点击排序 + 输入过滤，纯前端，千行无压力）；
 // last_seen < 10min 高亮在线点（与 /stats/overview 的在线口径一致）
 
-import { getStats } from '../core/api.js';
+import { getStats, makeGuard } from '../core/api.js';
 import { escapeHtml, fmtLocalFromIso, fmtAgo } from '../core/fmt.js';
 import { downloadCsv } from '../core/download.js';
 
@@ -24,6 +24,9 @@ const COLUMNS = [
 let sortKey = 'lastSeen';
 let sortDesc = true;
 let filterText = '';
+/** 代际守卫：本页无 range 参数，但 60s 轮询与 visibilitychange 仍会并发；
+ *  rows 被旧快照写脏后，后续纯本地的过滤/排序重渲染会一直画着旧列表 */
+const guard = makeGuard();
 
 export function init(el) {
   root = el;
@@ -55,8 +58,10 @@ export function init(el) {
 export async function refresh() {
   const errBox = root.querySelector('#in-error');
   errBox.textContent = '';
+  const g = guard.next();
   try {
     const d = await getStats('/installs');
+    if (guard.stale(g)) return; // 守卫必须挡在赋值前，否则 rows 已脏
     rows = d.installs;
     renderTable();
   } catch (e) {

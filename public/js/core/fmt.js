@@ -47,3 +47,27 @@ export function fmtAgo(iso) {
 export function fmtPct(v) {
   return v == null ? '—' : (v * 100).toFixed(1) + '%';
 }
+
+/**
+ * 环比（本期 vs 上期）→ { text, cls }。
+ *
+ * 两期任一 < 10 时改显**绝对差**而非百分比：长尾工作流从 1 涨到 3 就是 +200%，
+ * 在表里比真正重要的 +18%（312→368）还刺眼——那是噪声不是信号。
+ * 上期为 0 也走这一支，顺带避开除零。
+ *
+ * @param {number} cur 本期值
+ * @param {number} prev 上期值
+ * @param {(n:number)=>string} [fmt] 绝对差的格式化（时长列传 fmtDuration，缺省千分位整数）
+ * @returns {{text:string, cls:string}} cls ∈ '' | 'delta-up' | 'delta-down'
+ */
+export function fmtDelta(cur, prev, fmt) {
+  const c = Number(cur || 0), p = Number(prev || 0);
+  if (c === 0 && p === 0) return { text: '—', cls: '' };
+  const d = c - p;
+  const cls = d > 0 ? 'delta-up' : d < 0 ? 'delta-down' : '';
+  if (c < 10 || p < 10) {
+    const f = fmt || fmtInt;
+    return { text: (d > 0 ? '+' : d < 0 ? '-' : '') + f(Math.abs(d)), cls };
+  }
+  return { text: (d > 0 ? '+' : '') + ((d / p) * 100).toFixed(0) + '%', cls };
+}

@@ -2,13 +2,15 @@
 // failures.js —— 失败页：kind 分布条形、按版本失败率表、最近失败事件表
 // （行留 data-event-id：v2 一键提单的入口位）
 
-import { getStats } from '../core/api.js';
+import { getStats, makeGuard } from '../core/api.js';
 import { escapeHtml, fmtInt, fmtPct, fmtLocalFromIso } from '../core/fmt.js';
 import { EC as COLORS } from '../core/echarts.js';
 import { rangeParams } from '../core/range.js';
 import { downloadCsv } from '../core/download.js';
 
 /** @type {HTMLElement} */ let root;
+/** 代际守卫：切档位时 90 天查询比 7 天慢，落地顺序与发起顺序相反，旧快照会覆盖新结果 */
+const guard = makeGuard();
 
 export function init(el) {
   root = el;
@@ -32,8 +34,10 @@ export function init(el) {
 export async function refresh() {
   const errBox = root.querySelector('#fa-error');
   errBox.textContent = '';
+  const g = guard.next();
   try {
     const d = await getStats('/stats/failures', rangeParams());
+    if (guard.stale(g)) return; // 有更新的一次在途/已落地，丢弃本次
     renderKinds(d.kinds);
     renderByVersion(d.byVersion);
     renderRecent(d.recent);

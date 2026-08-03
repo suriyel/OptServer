@@ -283,6 +283,43 @@ tbody tr { transition: background .12s; }
 tbody tr:hover td { background: rgba(255,255,255,0.022); }
 td { color: var(--text-2); }
 
+/* ---- 环比列 ---- */
+/* 涨跌只靠符号+颜色，不加背景块：整列箭头已经够抢眼，再加底色会盖过数值本身 */
+.cmp-td { font-variant-numeric: tabular-nums; color: var(--dim); }
+.cmp-td.delta-up, .cmp-delta.delta-up { color: var(--green); }
+.cmp-td.delta-down, .cmp-delta.delta-down { color: var(--red); }
+.table-note { color: var(--dim); font-size: var(--fs-2xs); letter-spacing: 0.03em; padding: 10px 12px 0; }
+
+/* ---- 明细表点行展开 ---- */
+.row-x { cursor: pointer; }
+.row-x.open td { background: rgba(240,168,48,0.045); }
+.caret { display: inline-block; width: 12px; color: var(--dim); font-size: 9px; transition: color .12s; }
+.row-x:hover .caret { color: var(--amber); }
+.row-x.open .caret { color: var(--amber); }
+.detail-row td { padding: 0; background: var(--bg-2); }
+.detail-row:hover td { background: var(--bg-2); } /* 展开区不跟着 tr:hover 变色 */
+.detail { padding: 14px 16px 16px; border-left: 2px solid var(--amber-dim); }
+.detail-title {
+  color: var(--muted); font-size: var(--fs-xs); letter-spacing: 0.05em; text-transform: uppercase;
+  margin-bottom: 9px; font-family: var(--font-mono);
+}
+.detail-title + .cmp-grid { margin-top: 0; }
+/* 「当日不完整」提示：图内标签会被 grid 裁掉，故挂在标题行末尾 */
+.detail-note { color: var(--dim); text-transform: none; letter-spacing: 0.02em; margin-left: 10px; }
+.detail-note::before { content: '·'; margin-right: 8px; }
+.detail-chart { height: 240px; margin-bottom: 14px; }
+
+/* 本期 vs 上期对比条 */
+.cmp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 10px; }
+.cmp-cell { background: var(--panel-2); border: 1px solid var(--border-soft); border-radius: 8px; padding: 9px 11px; }
+.cmp-label { color: var(--muted); font-size: var(--fs-2xs); letter-spacing: 0.04em; }
+.cmp-val {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  color: var(--text-2); font-size: var(--fs-sm); margin-top: 3px; white-space: nowrap;
+}
+.cmp-arrow { color: var(--dim); margin: 0 6px; }
+.cmp-delta { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--dim); margin-top: 2px; }
+
 /* 在线脉冲点 */
 .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 7px; background: var(--dim); vertical-align: middle; }
 .dot.online { background: var(--green); box-shadow: 0 0 0 0 rgba(84,192,138,0.7); animation: pulse 2s infinite; }

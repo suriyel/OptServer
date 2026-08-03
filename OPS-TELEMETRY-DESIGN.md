@@ -64,7 +64,8 @@
   "schemaVersion": 1,
   "eventId": "uuid",              // 客户端生成；服务器按此幂等去重（重发安全）
   "type": "session_start",        // 见下表；v2 直接扩展新 type，信封不变
-  "ts": "2026-07-02T09:30:00+08:00", // 客户端本地时刻（ISO）；聚合以服务器接收时刻为权威（防时钟漂移）
+  "ts": "2026-07-02T01:30:00.000Z",  // 客户端 toISOString()，即 UTC（此处原写 +08:00 本地偏移，与实现从不相符，已改正）
+                                     // 归日仍以服务器接收时刻为权威（防时钟漂移）；口径详见 docs/CLIENT-HANDOFF.md §3
   "installId": "uuid",            // 首启生成，持久化于 DATA_ROOT（每数据目录一个）
   "user": "zhangsan",             // os.userInfo().username
   "host": "DESKTOP-XXXX",         // os.hostname()
@@ -207,10 +208,15 @@ CREATE TABLE daily_user (
 ```
 
 - `day` 按服务器本地日（Asia/Shanghai）切分，存 `YYYY-MM-DD`——遵循「ISO 存储、本地展示」既有约定，聚合边界与使用者作息一致。
-- 聚合以 `server_ts` 为权威（客户端时钟不可信，client_ts 仅参考留档）。
+- **归日**以 `server_ts` 为权威（客户端时钟不可信）。注意这条只管 `day` 列：规划中的使用时段分布会**改用 `client_ts` 做小时归属**（spool 断网补发会把活动全堆到重连时刻，用接收时刻分桶必造假高峰），届时库里会有两套时间口径且**不可互相对账**——设计与取舍见 [docs/TIME-DIMENSION-PLAN.md](./docs/TIME-DIMENSION-PLAN.md) P3。
 - 天级总量（DAU、总会话等）从 daily_user 现查（千人级 × 一年 ≈ 25 万行，group by day 毫秒级），不单设 totals 表。
 
 ### 7.3 API
+
+> ⚠️ **本节是 v1 设计期的快照，已被实现超越，不要当作当前契约读。**
+> 现行唯一契约是 [docs/API.md](./docs/API.md)——那里有本节缺的全部端点（`blueprints`、`users/top`、两个 `series`、`realtime`、`export/*`、`update/*`、`auth/*`）与鉴权口径。
+> 下面这几行仅保留作设计意图的历史记录；已知与现状不符之处：**已加登录鉴权**（只保护看板，`POST /v1/events` 仍开放）；看板是 **7 页**而非 §7.4 说的四页；图表库用的是 **vendored ECharts** 而非 uPlot。
+> 时间维度（逐日下钻 / 环比 / 沉默天数 / 作息分布）的三期设计见 [docs/TIME-DIMENSION-PLAN.md](./docs/TIME-DIMENSION-PLAN.md)。
 
 ```
 POST /v1/events            # { events: [envelope...] } ≤500/批 → { ok, accepted, dup }

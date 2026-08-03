@@ -1,13 +1,15 @@
 // @ts-check
 // overview.js —— 概览页：今日/在线/周活 stat 卡 + 版本环图（纯 CSS conic-gradient）+ 工具占比条形
 
-import { getStats } from '../core/api.js';
+import { getStats, makeGuard } from '../core/api.js';
 import { escapeHtml, fmtInt, fmtDuration } from '../core/fmt.js';
 import { EC as COLORS } from '../core/echarts.js';
 
 const DONUT_COLORS = [COLORS.amber, COLORS.blue, COLORS.green, COLORS.violet, COLORS.orange, COLORS.muted];
 
 /** @type {HTMLElement} */ let root;
+/** 代际守卫：本页无 range 参数，但 60s 轮询与 visibilitychange 仍会并发，慢的旧响应后落地会把新数覆盖回去 */
+const guard = makeGuard();
 
 export function init(el) {
   root = el;
@@ -23,12 +25,14 @@ export function init(el) {
 export async function refresh() {
   const errBox = root.querySelector('#ov-error');
   errBox.textContent = '';
+  const g = guard.next();
   try {
     const [ov, vers, tools] = await Promise.all([
       getStats('/stats/overview'),
       getStats('/stats/versions'),
       getStats('/stats/tools'), // 缺省近 30 天；范围选择只影响趋势/失败页，占比页保持口径稳定
     ]);
+    if (guard.stale(g)) return; // 有更新的一次在途/已落地，丢弃本次
     renderCards(ov);
     renderVersions(vers.versions);
     renderTools(tools.tools);

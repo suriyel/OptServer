@@ -176,23 +176,65 @@ GET /healthz → 200 { "ok": true }
 ### `GET /v1/stats/users/top?from&to&metric&limit`
 高频用户 Top N。`metric` ∈ `sessions｜runs｜failures｜sessionMs｜tokens`(默认 `sessions`；非法值 `400 bad metric`)；`limit` 默认 10、上限 100。服务器按 `metric` 排序返回，前端切换 metric 即重查。
 ```jsonc
-{ "ok": true, "data": { "from": "...", "to": "...", "metric": "tokens", "users": [
+{ "ok": true, "data": { "from": "...", "to": "...", "metric": "tokens",
+  "compare": { "cur": { "from": "...", "to": "..." }, "prev": { "from": "...", "to": "..." } },
+  "users": [
   { "user": "user025", "host": "HOST-025", "sessions": 39, "runs": 23, "failures": 6,
-    "sessionMs": 80527678, "inTokens": 900453, "outTokens": 173400, "tokens": 1073853 }
+    "sessionMs": 80527678, "inTokens": 900453, "outTokens": 173400, "tokens": 1073853,
+    // 环比用：同名字段在两个对比窗上的聚合（见下方「环比对比窗」）
+    "cur":  { "sessions": 31, "runs": 17, "failures": 4, "sessionMs": 58800000, "tokens": 699157 },
+    "prev": { "sessions": 68, "runs": 37, "failures": 12, "sessionMs": 52560000, "tokens": 1170950 } }
 ] } }
 ```
 
 ### `GET /v1/stats/blueprints?from&to`
 各工作流(内部 blueprintId)的运行/失败/E2E/中断/token，按 run 总数倒序。
 ```jsonc
-{ "ok": true, "data": { "from": "...", "to": "...", "blueprints": [
+{ "ok": true, "data": { "from": "...", "to": "...",
+  "compare": { "cur": { "from": "...", "to": "..." }, "prev": { "from": "...", "to": "..." } },
+  "blueprints": [
   { "blueprintId": "fix-tests", "runsDone": 82, "runsFailed": 26, "runsHalted": 23, "runs": 131,
     "failures": 39, "activeMs": 37766873, "interruptions": 136,
-    "inTokens": 1294296, "outTokens": 262175, "tokens": 1556471 }
+    "inTokens": 1294296, "outTokens": 262175, "tokens": 1556471,
+    "cur":  { "runs": 144, "runsDone": 90, "runsFailed": 30, "runsHalted": 24, "failures": 42,
+              "activeMs": 36360000, "interruptions": 111, "inTokens": 1160000, "outTokens": 242806, "tokens": 1402806 },
+    "prev": { "runs": 83, "…": "同 cur 的字段集" } }
 ] } }
 ```
 - `runs` = done+failed+halted；`failures` = 归因到本工作流的 `failure_event` 数(带 blueprintId)。
 - `activeMs` 为「E2E 活跃时长」口径(累加 bp_run_end.activeMs)；`interruptions` 为运行中用户中断次数。
+
+#### 环比对比窗(`compare` / `cur` / `prev`)
+上面两个端点的**行内总量仍是 `from~to` 全区间(含当日)**——那是实时感，不动。环比另起两个窗口，**两端都截至昨日**、各取与 `from~to` 等长的完整自然日：
+
+| range | `compare.cur` | `compare.prev` |
+|---|---|---|
+| 缺省 `[今天-29, 今天]` | `[今天-30, 今天-1]` | `[今天-60, 今天-31]` |
+| 显式历史区间(`to` < 今天) | 即 range 自身 | 紧邻其前的等长窗 |
+
+- **为什么不直接拿 range 当分子**：range 末尾的「今天」只过了一半，直接比会让每天上午一片飘红、下午转绿——那是钟点噪声不是趋势信号。
+- `compare` 为 `null`（且各行不带 `cur`/`prev`）当且仅当 range 内**没有一整个完整自然日**（如 `from=to=今天`）。消费方必须处理这一支。
+- `cur`/`prev` 的字段是行内同名数值字段的子集，看板按当前排序列取同名字段算环比；**两期任一 < 10 时改显绝对差**而非百分比（小基数下 1→3 就是 +200%，是噪声）。
+
+### `GET /v1/stats/blueprints/series?id&from&to`
+单个工作流的逐日序列（看板明细表「点行展开」用）。`id` 必填非空 ≤256，否则 `400 bad id`；**未知 id 返回全零序列而非 404**（工作流可能在区间外才有数据）。缺失日**补零**，不缺行。
+```jsonc
+{ "ok": true, "data": { "id": "fix-tests", "from": "...", "to": "...", "days": [
+  { "day": "2026-07-05", "runsDone": 2, "runsFailed": 1, "runsHalted": 0, "failures": 1,
+    "activeMs": 512000, "interruptions": 3, "inTokens": 21000, "outTokens": 4200 }
+] } }
+```
+
+### `GET /v1/stats/users/series?user&host&from&to`
+单个用户(`user@host`)的逐日序列。`user` 与 `host` **分开传**（用户名里可能含 `@`，拼串切不开），任一缺失 `400 bad user/host`。同一 `user@host` 的**多个 install_id 按天合并成一行**（与 Top N 的去重口径一致）。
+```jsonc
+{ "ok": true, "data": { "user": "user002", "host": "HOST-002", "from": "...", "to": "...", "days": [
+  { "day": "2026-07-05", "sessions": 3, "sessionMs": 4200000, "runsDone": 2, "runsFailed": 0,
+    "runsHalted": 1, "failures": 0, "activeMs": 900000, "inTokens": 31000, "outTokens": 6100 }
+] } }
+```
+- 两个 series 端点都走 `daily_*` 聚合表，**不读 events**，因此不受 90 天保留窗约束。
+- 索引口径：`daily_blueprint` 主键 `(day, blueprint_id)` 以 day 先导，按 id 过滤是范围内小规模扫；`daily_user` 按 `user/host` 过滤要扫范围内全部行（90 天千人 ≈ 9 万行、十毫秒级）。这是**按需下钻**而非首屏，故未为其新增索引。
 
 ### `GET /v1/stats/realtime?window=`
 实时活动：近 `window` 分钟(默认/上限 1440 = 24h)**按分钟直查 events**，无新增存储。只返回**非空分钟桶**，缺失分钟补零交前端。
@@ -305,6 +347,8 @@ ingest：`ok:false` 计入 `daily_fail`（kind = `update:<reason>`）→ 失败�
 | `400` | 批非数组 / >500 条 | `{ ok:false, error:"bad batch" }` |
 | `400` | from/to 非法、倒置、跨度 >400 天 | `{ ok:false, error:"bad range" }` |
 | `400` | `/stats/users/top` metric 非白名单 | `{ ok:false, error:"bad metric" }` |
+| `400` | `/stats/blueprints/series` 缺 `id` 或 id 空/超 256 | `{ ok:false, error:"bad id" }` |
+| `400` | `/stats/users/series` 缺 `user` 或 `host` | `{ ok:false, error:"bad user/host" }` |
 | `413` | body 超 1 MB | `{ ok:false, error:"bad request" }` |
 | `404` | `/v1` 下未知路由 | `{ ok:false, error:"not found" }` |
 | `500` | ingest/stats 内部异常 | `{ ok:false, error:"..." }` |
