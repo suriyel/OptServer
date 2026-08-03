@@ -248,7 +248,7 @@ GET /healthz → 200 { "ok": true }
 
 ### 免鉴权（与 `POST /v1/events` 同档：客户端没有账号，内网即信任）
 
-**`GET /v1/update/latest`** — 有已发布版本 → `200`：
+**`GET /v1/update/latest[?current=<本机版本>]`** — 有已发布版本 → `200`：
 
 ```jsonc
 {
@@ -266,6 +266,8 @@ GET /healthz → 200 { "ok": true }
 
 尚无已发布版本 → `204 No Content`（不是 404，避免与路由错误混淆）。客户端只认 `packages[variant].file`，绝不自己拼文件名。
 
+`current`（可选）是客户端自报的真实版本（`app.getVersion()`）。合法三段数字且 **≥ 已发布版本** → 直接 `204`，服务端替它闭嘴；非法串、空值、缺省，或已发布版本号本身不合法（`index.json` 被手改坏）→ 一律照常返回 manifest（**fail-open**：绝不因为一个查询参数让全公司集体停更）。这道闸是「万一又发出版本号标错的包」时不必等客户端发版就能止住误提示的后手，同时让 access log 里能直接看到客户端的真实版本。老客户端不带此参数，行为不变。
+
 **`GET /v1/update/download/:file`** — `res.sendFile` 原生支持 `Range`（断点续传）。`:file` 须匹配 `/^[A-Za-z0-9._-]+$/` 且命中当前已发布清单，否则 `404`（防路径穿越；已下架版本即刻 404）。
 
 ### 鉴权内 + requireAdmin（运维动作——任何人都能推包等于任何人都能给全公司装东西）
@@ -274,11 +276,13 @@ GET /healthz → 200 { "ok": true }
 |---|---|
 | `POST /v1/update/upload?variant=slim\|with-linux&version=<ver>[&filename=]` | body 为 raw octet-stream；边写边算 sha256 落 `staging/<ver>/<variant>.exe` + 同名 `.json` 边车；同 (ver,variant) 重传直接覆盖（幂等） |
 | `GET /v1/update/drafts` | 草稿区各版本各变体就位情况 + 当前已发布 + 可回滚历史（登录即可读，非 admin 也可看） |
-| `POST /v1/update/publish` | body `{ version, notes, minSupported }`。服务端自检：①两变体齐备 ②版本合法三段数字且高于当前已发布 ③大小/sha256 复算与边车一致 ④地板为空或合法且 ≤ version。通过则 rename 进 `published/<ver>/`（文件名归一为无空格 slug）并重写 `index.json` |
+| `POST /v1/update/publish` | body `{ version, notes, minSupported }`。服务端自检：①两变体齐备 ②版本合法三段数字且高于当前已发布 ③大小/sha256 复算与边车一致 ④地板为空或合法且 ≤ version ⑤边车 `originalName` 里内嵌的三段版本号（抽得到才查）与声明 `version` 数值相等。通过则 rename 进 `published/<ver>/`（文件名归一为无空格 slug）并重写 `index.json` |
 | `POST /v1/update/unpublish` | 下架当前版本（删其文件），回退到上一个文件仍在的已发布版本；没有则清空（`/latest` 回 204） |
 | `DELETE /v1/update/draft/:version/:variant` | 删草稿 |
 
 发布区保留最近 **3** 个版本的文件供回滚，更旧自动清理（磁盘规划：3 × ~370MB ≈ 1.2GB，见 README）。
+
+**关于自检 ⑤（包名版本对账）**：`version` 是运维在发布页手输的自由文本，与包内容无关，而 `canonicalName()` 会把文件强行改名成 `cancong-portable-<声明版本>.exe`——发错包（标 0.0.4 实为 0.0.3）不会有任何报错，后果却是所有客户端被告知「有新版本 0.0.4」，升完 `app.getVersion()` 还是 0.0.3，于是**无限提示**（真实事故）。构建产物天然叫 `cancong-portable-<版本>[-with-linux].exe`，上传时的原始文件名已记进边车，拿来对账零成本。抽不到三段版本号（运维自己改过名，如 `build-final.exe`）→ 不拦，保持 fail-open；`0.0.04` 与 `0.0.4` 按数值判等，不误伤。发布页在选文件时也会就地预警，但**真正的把关在这里**。
 
 上传**无尺寸上限**且是分钟级长请求：进程侧已在 `listen` 后关掉 `srv.requestTimeout`（Node 18+ 默认 300s 会把大包截断成 `400 upload aborted`），反向代理需同步放宽（见 [DEPLOYMENT.md §9.1](./DEPLOYMENT.md)）。curl 复现时**不要带 `-H 'content-type: application/json'`**——`express.json` 会先吃掉 body，服务端只看到 `400 empty body`：
 

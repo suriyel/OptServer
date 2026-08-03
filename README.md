@@ -100,7 +100,7 @@ GET  /v1/installs          # 实例明细
 GET  /v1/export/{blueprints,users,failures,installs}?from&to  # CSV 导出（中文表头 + UTF-8 BOM）
 
 # 应用自动更新（详见 docs/API.md）
-GET  /v1/update/latest             # 查版：manifest 或 204（免鉴权）
+GET  /v1/update/latest[?current=]  # 查版：manifest 或 204（免鉴权；current 已是最新也回 204）
 GET  /v1/update/download/:file     # 下载安装包，支持 Range 断点续传（免鉴权）
 POST /v1/update/upload?variant&version[&filename]   # raw octet-stream 推包（管理员）
 GET  /v1/update/drafts             # 草稿区 + 当前已发布 + 可回滚历史（登录即可读）

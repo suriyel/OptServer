@@ -99,8 +99,12 @@ systemctl start cancong-ops
 | `[export]` | CSV 导出内部异常 / 命中 10 万行上限的截断提示 |
 | `[auth]` | 预置管理员、默认密码告警 |
 | `[aggregate]` | 夜间 job 成功摘要 / 失败原因 |
+| `[update]` | 查版(带客户端自报版本) / 下载(含 404 具体原因) / 发布·下架审计 / `index.json` 读取失败 |
 
 - systemd 下由 journald 捕获：`journalctl -u cancong-ops -f`(实时) / `journalctl -u cancong-ops --since today`。
+- 排查自动更新：`journalctl -u cancong-ops | grep '\[update\]'`。`latest current=<x> → 200 <y>` 里
+  **x 长期不前进而 y 一直更高**，即客户端装完版本没变——发布时版本号标错（对照同版本的
+  `publish` 审计行，它记着上传包的原始文件名，名里嵌着包的真实版本）。
 - 如需落文件，在单元 `[Service]` 加 `StandardOutput=append:/var/log/cancong-ops.log`(默认未配)。
 
 ## 7. 健康检查与自测

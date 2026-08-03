@@ -350,6 +350,12 @@ td { color: var(--text-2); }
 /* 上传是显式动作——按钮窄一点贴着 file input，别和底部「发布」抢视线 */
 .rel-variant .rel-upload { padding: 4px 12px; }
 .rel-variant .rel-status.rel-err { color: var(--red); }
+/* 待办态（已选待传 / 包在别的版本里）必须和 ✓ 完成态、「未上传」空态区分开——三者以前共用
+   --muted 灰字，一模一样，「补填版本号后忘了点上传」和「换版本后包从行内消失」都因此看不出来。 */
+.rel-variant .rel-status.rel-todo { color: var(--amber); }
+.rel-variant .rel-upload.rel-todo { border-color: var(--amber-dim); color: var(--amber); }
+/* 「发布」为什么不能点——按钮禁用态只有 opacity: .45，不写清楚就只能瞎猜 */
+.rel-gate { color: var(--amber); font-size: var(--fs-2xs); letter-spacing: 0.04em; }
 /* 版本号是上传的前置条件，缺了就高亮它，而不是在表单底部写小灰字 */
 .rel-form input.rel-need { border-color: var(--red); }
 .rel-form input:read-only { color: var(--muted); background: var(--bg-2); cursor: default; }

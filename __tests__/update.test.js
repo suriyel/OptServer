@@ -19,8 +19,10 @@ async function login(baseUrl) {
   return r.json.data.token;
 }
 
-async function upload(baseUrl, token, version, variant, buf) {
-  const res = await fetch(`${baseUrl}/v1/update/upload?variant=${variant}&version=${version}&filename=orig name.exe`, {
+// filename 默认「orig name.exe」——不含三段版本号，发布自检的「包名版本 ≠ 声明版本」一项对它 fail-open
+async function upload(baseUrl, token, version, variant, buf, filename) {
+  const fn = encodeURIComponent(filename == null ? 'orig name.exe' : filename);
+  const res = await fetch(`${baseUrl}/v1/update/upload?variant=${variant}&version=${version}&filename=${fn}`, {
     method: 'POST',
     headers: { 'content-type': 'application/octet-stream', authorization: 'Bearer ' + token },
     body: buf,
@@ -137,6 +139,46 @@ test('发布自检：sha 复算不一致拒绝（显式 releasesDir 直改落盘
   assert.match(r.json.error, /sha256/);
 });
 
+// 真实事故：把 0.0.3 的包按 0.0.4 传上去发布 → 所有客户端被告知「有新版本 0.0.4」，
+// 升完 app.getVersion() 还是 0.0.3 → 无限提示。版本号是手输的，唯一能对账的就是文件名。
+test('发布自检：文件名内嵌版本与声明版本不符 → 拒绝；抽不到或一致 → 放行', async (t) => {
+  const { baseUrl } = await makeApp(t, { auth: true });
+  const token = await login(baseUrl);
+  const buf = crypto.randomBytes(4096);
+
+  // 声明 0.0.4，但 slim 传的是 cancong-portable-0.0.3.exe → 拒绝，两个版本号都要出现在提示里
+  await upload(baseUrl, token, '0.0.4', 'slim', buf, 'cancong-portable-0.0.3.exe');
+  await upload(baseUrl, token, '0.0.4', 'with-linux', buf, 'cancong-portable-0.0.4-with-linux.exe');
+  const bad = await publish(baseUrl, token, { version: '0.0.4' });
+  assert.strictEqual(bad.status, 400);
+  assert.match(bad.json.error, /0\.0\.3/);
+  assert.match(bad.json.error, /0\.0\.4/);
+
+  // 换成正确的包名 → 放行（前导零归一：0.0.04 与 0.0.4 数值相等，不误伤）
+  await upload(baseUrl, token, '0.0.4', 'slim', buf, 'cancong-portable-0.0.04.exe');
+  assert.strictEqual((await publish(baseUrl, token, { version: '0.0.4' })).status, 200);
+
+  // 文件名里抽不到三段版本号（运维自己改过名）→ fail-open，不拦
+  await upload(baseUrl, token, '0.0.5', 'slim', buf, 'build-final.exe');
+  await upload(baseUrl, token, '0.0.5', 'with-linux', buf, 'build-final-linux.exe');
+  assert.strictEqual((await publish(baseUrl, token, { version: '0.0.5' })).status, 200);
+});
+
+test('latest ?current=：已是最新 → 204；更旧 → 200；非法/缺省 → 200（fail-open）', async (t) => {
+  const { baseUrl } = await makeApp(t, { auth: true });
+  const token = await login(baseUrl);
+  await stageBoth(baseUrl, token, '0.0.4', crypto.randomBytes(4096));
+  assert.strictEqual((await publish(baseUrl, token, { version: '0.0.4' })).status, 200);
+
+  const at = async (q) => (await fetch(baseUrl + '/v1/update/latest' + q)).status;
+  assert.strictEqual(await at('?current=0.0.4'), 204, '同版本不该被提示升级');
+  assert.strictEqual(await at('?current=0.1.0'), 204, '比服务器还新（本地开发包）也不提示');
+  assert.strictEqual(await at('?current=0.0.3'), 200, '真的更旧才给 manifest');
+  assert.strictEqual(await at('?current=abc'), 200, '非法版本串 fail-open');
+  assert.strictEqual(await at('?current='), 200, '空值 fail-open');
+  assert.strictEqual(await at(''), 200, '老客户端不带参数 → 行为不变');
+});
+
 test('下载：命中清单 200、Range 206 断点续传、路径穿越/未发布文件 404', async (t) => {
   const { baseUrl } = await makeApp(t, { auth: true });
   const token = await login(baseUrl);
@@ -236,4 +278,76 @@ test('ingest：update_apply 进 KNOWN_TYPES；ok:false 落 daily_fail（update:<
   assert.strictEqual(recent.length, 1, 'ok:true 不进失败列表');
   assert.strictEqual(recent[0].type, 'update_apply');
   assert.strictEqual(recent[0].payload.reason, 'other_instance');
+});
+
+// ---- 观测面（TechDemos docs/APP-AUTO-UPDATE-DESIGN.md §6.13）----
+// 2026-08-03「发错包」事故里服务端一点痕迹都没留（整个 lib/update.js 零 console.*），
+// 根因只能靠读码推演。这两条守住「以后一定留得下证据」。
+
+// 抓 console：返回收集到的行，t.after 自动还原
+function captureConsole(t) {
+  const lines = { log: [], error: [] };
+  const origLog = console.log; const origErr = console.error;
+  console.log = (...a) => { lines.log.push(a.map(String).join(' ')); };
+  console.error = (...a) => { lines.error.push(a.map(String).join(' ')); };
+  t.after(() => { console.log = origLog; console.error = origErr; });
+  return lines;
+}
+
+test('日志：查版记录客户端自报版本（发错包的对账凭据）+ 发布审计记上传原名', async (t) => {
+  const { baseUrl } = await makeApp(t, { auth: true });
+  const token = await login(baseUrl);
+  const slim = crypto.randomBytes(2048);
+  // 原名带真实版本 0.0.1，声明版本也是 0.0.1 → 自检放行
+  assert.strictEqual((await upload(baseUrl, token, '0.0.1', 'slim', slim, 'cancong-portable-0.0.1.exe')).status, 200);
+  assert.strictEqual((await upload(baseUrl, token, '0.0.1', 'with-linux', slim, 'cancong-portable-0.0.1-with-linux.exe')).status, 200);
+
+  const lines = captureConsole(t);
+  assert.strictEqual((await publish(baseUrl, token, { version: '0.0.1' })).status, 200);
+  const pub = lines.log.filter((l) => l.startsWith('[update] publish'));
+  assert.strictEqual(pub.length, 1, '发布必须留一条审计行');
+  assert.match(pub[0], /publish 0\.0\.1/);
+  assert.match(pub[0], /cancong-portable-0\.0\.1\.exe/, '审计行须含上传原名——名里嵌着包的真实版本');
+  assert.match(pub[0], /by=admin/);
+
+  // 老客户端不带 current → 记 '-'；带了就必须逐字落进日志
+  lines.log.length = 0;
+  assert.strictEqual((await getJson(baseUrl, '/v1/update/latest')).status, 200);
+  assert.match(lines.log.join('\n'), /\[update\] latest current=- .*→ 200 0\.0\.1/);
+
+  lines.log.length = 0;
+  const r = await fetch(baseUrl + '/v1/update/latest?current=0.0.0');
+  assert.strictEqual(r.status, 200);
+  await r.json();
+  assert.match(lines.log.join('\n'), /\[update\] latest current=0\.0\.0 .*→ 200 0\.0\.1/);
+
+  // 已是最新 → 204，同样留痕（否则「大家都不升级了」无从区分）
+  lines.log.length = 0;
+  assert.strictEqual((await fetch(baseUrl + '/v1/update/latest?current=0.0.1')).status, 204);
+  assert.match(lines.log.join('\n'), /\[update\] latest current=0\.0\.1 .*→ 204（已是最新）/);
+});
+
+test('日志：index.json 损坏必须 console.error（静默 204 = 全公司集体停更且无痕）', async (t) => {
+  const os = require('os');
+  const rel = fs.mkdtempSync(path.join(os.tmpdir(), 'ops-rel-'));
+  t.after(() => fs.rmSync(rel, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }));
+  const { baseUrl } = await makeApp(t, { auth: true, releasesDir: rel });
+  fs.mkdirSync(rel, { recursive: true });
+  fs.writeFileSync(path.join(rel, 'index.json'), '{ 这不是 JSON');
+
+  const lines = captureConsole(t);
+  assert.strictEqual((await fetch(baseUrl + '/v1/update/latest')).status, 204, '坏 index → fail-safe 回 204');
+  assert.ok(lines.error.some((l) => l.startsWith('[update] index.json 读取失败')), '但必须留下 error');
+});
+
+test('日志：下载 404 要说清是哪一种（不在清单 vs 文件不在盘上）', async (t) => {
+  const { baseUrl } = await makeApp(t, { auth: true });
+  const token = await login(baseUrl);
+  const slim = crypto.randomBytes(2048);
+  await stageBoth(baseUrl, token, '0.0.1', slim);
+  assert.strictEqual((await publish(baseUrl, token, { version: '0.0.1' })).status, 200);
+
+  const lines = captureConsole(t);
+  assert.strictEqual((await fetch(baseUrl + '/v1/update/download/cancong-portable-9.9.9.exe')).status, 404);
+  assert.match(lines.log.join('\n'), /\[update\] download .*→ 404（不在当前已发布清单/);
 });
