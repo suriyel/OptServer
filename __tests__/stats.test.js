@@ -5,6 +5,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 
 const { makeApp, getJson, makeEvent } = require('./helpers');
+const { openDb } = require('../lib/db');
 const { ingestBatch } = require('../lib/ingest');
 const { parseRange, shiftDay } = require('../lib/stats');
 const { localDay } = require('../lib/time-utils');
@@ -126,6 +127,51 @@ test('failures recent：按 day DESC, server_ts DESC 倒序（最新在前）', 
   ingestBatch(dao, [makeEvent({ ...A, type: 'failure_event', payload: { kind: 'new' } })], NOW);
   const { json } = await getJson(baseUrl, `/v1/stats/failures?from=${localDay(D1)}&to=${localDay(NOW)}`);
   assert.deepStrictEqual(json.data.recent.map((r) => r.payload.kind), ['new', 'mid', 'old']);
+});
+
+// 以下三个用例守 stRecentFailures 的 UNION ALL 改写（两个 partial 索引各扫各的再归并）。
+// 该查询原为一条 WHERE ... OR ...，会让 SQLite 弃用 ix_fail_recent 退化成扫全窗口；
+// 拆开后正确性风险从「索引选择」转移到「两分支归并」，故按归并语义补测。
+test('failures recent：failure_event 与 update_apply 跨类型按时间全局归并', async (t) => {
+  const { baseUrl, dao } = await makeApp(t, { nowFn: () => NOW });
+  // 同一天内交错两种类型，验证归并是全局有序而非「先一类后另一类」
+  ingestBatch(dao, [makeEvent({ ...A, type: 'failure_event', payload: { kind: 'f-old' } })], D1);
+  ingestBatch(dao, [makeEvent({ ...A, type: 'update_apply', payload: { ok: false, reason: 'sha_mismatch' } })], D2);
+  ingestBatch(dao, [makeEvent({ ...A, type: 'failure_event', payload: { kind: 'f-new' } })], NOW);
+  const { json } = await getJson(baseUrl, `/v1/stats/failures?from=${localDay(D1)}&to=${localDay(NOW)}`);
+  assert.deepStrictEqual(json.data.recent.map((r) => r.type),
+    ['failure_event', 'update_apply', 'failure_event']);
+  assert.deepStrictEqual(json.data.recent.map((r) => r.payload.kind || r.payload.reason),
+    ['f-new', 'sha_mismatch', 'f-old']);
+});
+
+test('failures recent：update_apply 只收 ok:false，成功装机不入列表', async (t) => {
+  const { baseUrl, dao } = await makeApp(t, { nowFn: () => NOW });
+  ingestBatch(dao, [
+    makeEvent({ ...A, type: 'update_apply', payload: { ok: true } }),
+    makeEvent({ ...B, type: 'update_apply', payload: { ok: false, reason: 'sfx_timeout' } }),
+  ], NOW);
+  const { json } = await getJson(baseUrl, `/v1/stats/failures?from=${localDay(D1)}&to=${localDay(NOW)}`);
+  assert.strictEqual(json.data.recent.length, 1);
+  assert.strictEqual(json.data.recent[0].payload.reason, 'sfx_timeout');
+});
+
+test('failures recent：limit 作用于归并后的结果（非每分支各取 N）', (t) => {
+  // 直打 DAO：本例要断言的是 SQL 的归并/截断语义，绕开 ingest 的聚合副作用更直接
+  const { dao, close } = openDb(':memory:');
+  t.after(close);
+  // 两类各灌 3 条，limit=4 时应恰好拿到全局最新的 4 条（2 类混合），而不是 8 条
+  for (let i = 1; i <= 3; i++) {
+    dao.insertEvent({ eventId: 'f' + i, installId: 'i', user: 'u', host: 'h', type: 'failure_event',
+      clientTs: null, serverTs: '2026-07-02T0' + i + ':00:00Z', day: '2026-07-02',
+      appVersion: '1.4.0', payload: JSON.stringify({ kind: 'k' }) });
+    dao.insertEvent({ eventId: 'u' + i, installId: 'i', user: 'u', host: 'h', type: 'update_apply',
+      clientTs: null, serverTs: '2026-07-02T0' + i + ':30:00Z', day: '2026-07-02',
+      appVersion: '1.4.0', payload: JSON.stringify({ ok: false, reason: 'r' }) });
+  }
+  const rows = dao.qRecentFailures('2026-07-02', '2026-07-02', 4);
+  assert.strictEqual(rows.length, 4);
+  assert.deepStrictEqual(rows.map((r) => r.eventId), ['u3', 'f3', 'u2', 'f2']);
 });
 
 test('installs：明细按 last_seen 倒序', async (t) => {

@@ -25,6 +25,11 @@ npm start                  # 等价 node server.js，默认 http://localhost:590
 | `PORT` | `5900` | 监听端口 |
 | `OPS_DB_PATH` | `./data/ops.db` | SQLite 路径(目录自动创建) |
 | `OPS_RETENTION_DAYS` | `90` | events 原始表保留天数(daily 聚合表永久) |
+| `OPS_ADMIN_USER` | `admin` | 预置管理员用户名(仅首次库中无 admin 时生效) |
+| `OPS_ADMIN_PASSWORD` | `admin123` | 预置管理员初始密码；用默认值时启动打印告警，务必改 |
+| `OPS_SESSION_DAYS` | `7` | 登录会话有效期天数 |
+| `OPS_SECURE_COOKIE` | 关 | 设为 `1` 时会话 Cookie 带 `Secure`(HTTPS 部署用) |
+| `OPS_RELEASES_DIR` | `./releases` | 应用更新发布区目录，见 §9.1 磁盘规划 |
 | `TZ` | 系统时区 | **必须钉死为 `Asia/Shanghai`**，见下 |
 
 ## 4. 时区(重要)
@@ -66,6 +71,21 @@ systemctl enable --now cancong-ops
 systemctl status cancong-ops
 ```
 
+> 单元未设 `OPS_RELEASES_DIR`，发布区落在 `WorkingDirectory` 下的 `/opt/cancong-ops/releases`，**`User=ops` 必须对该目录有写权限**，且所在盘要留出约 1.2GB（见 §9.1）。要挪到数据盘就加一行 `Environment=OPS_RELEASES_DIR=/var/lib/cancong-ops/releases`。
+
+## 5.1 升级已有部署（schema 迁移）
+
+schema 版本由 `PRAGMA user_version` 驱动，服务启动时自动迁移。**建议停服后先单独跑迁移再启动新代码**，避免建索引期间持写锁把上报堵在 `busy_timeout=5000` 上：
+
+```bash
+systemctl stop cancong-ops
+git pull && npm ci --omit=dev
+npm run migrate -- --db /var/lib/cancong-ops/ops.db   # 报告迁移前后 user_version + 耗时；幂等，重复跑安全
+systemctl start cancong-ops
+```
+
+脚本不复制任何 DDL——直接调 `lib/db.js` 的 `openDb()`（仓库里迁移的唯一真源），不会与 `MIGRATIONS` 数组漂移。库不存在时**报错退出而非静默造空库**（那只意味着 `--db` 打错了）。当前最新版本 **v3**（v3 只加 `ix_update_recent` 索引，不加表；千万级 events 上建索引约数十秒）。
+
 ## 6. 日志
 
 服务**不写日志文件**，全部通过 `console.log('[tag]', ...)` 打到 **stdout**：
@@ -76,6 +96,8 @@ systemctl status cancong-ops
 | `[db]` | schema 迁移 |
 | `[ingest]` | 上报接口内部异常 |
 | `[stats]` | 查询接口内部异常 |
+| `[export]` | CSV 导出内部异常 / 命中 10 万行上限的截断提示 |
+| `[auth]` | 预置管理员、默认密码告警 |
 | `[aggregate]` | 夜间 job 成功摘要 / 失败原因 |
 
 - systemd 下由 journald 捕获：`journalctl -u cancong-ops -f`(实时) / `journalctl -u cancong-ops --since today`。
@@ -124,6 +146,31 @@ systemctl start cancong-ops
 
 库体积预期：千人级 × 90 天约 3–5 GB(`incremental_vacuum` 控制)。
 
+### 9.1 应用更新发布区(`releases/`)
+
+安装包**不进 SQLite、不进 git**，独立落在 `OPS_RELEASES_DIR`(缺省 `WorkingDirectory/releases`)：
+
+```
+releases/
+├── index.json                发布清单单一真源 { published, history }；救急可直接 cat / 手改
+├── staging/<ver>/            草稿区：<variant>.exe + 同名 .json 边车（中间态，可重传）
+└── published/<ver>/          已发布包，保留最近 3 个版本供回滚
+```
+
+- **磁盘**：两变体约 115MB + 273MB ≈ 370MB/版本 × 3 版本 ≈ **1.2GB**，加上草稿区峰值再留一版余量。部署盘不够就把 `OPS_RELEASES_DIR` 指到数据盘。
+- **权限**：`User=ops` 需对该目录可写（服务自建子目录）。首次推包报 500 `stage failed` 基本都是这里。
+- **备份**：只需 `index.json` + `published/`（staging 是中间态）。包本体在构建机 / GitHub Release 另有一份，丢了重传再发布即可。
+- **上传是分钟级长请求**：进程已在 `listen` 后关掉 `srv.requestTimeout`（保留 `headersTimeout=60s`）。**若前面挂了 nginx 等反向代理，必须同步放宽**，否则 273MB 的包会在代理层被截断：
+
+```nginx
+client_max_body_size 1g;
+proxy_request_buffering off;   # 别把整包缓冲到代理磁盘再转发
+proxy_read_timeout 1800s;
+proxy_send_timeout 1800s;
+```
+
+- **下架回滚**看板一键完成（删当前版本文件 → 回退到上一个文件仍在的已发布版本；没有则清空，客户端查版回 204）。极端情况下直接编辑 `index.json` 的 `published` 字段亦可，服务无缓存、下次请求即生效。
+
 ## 10. 故障排查
 
 | 现象 | 排查 |
@@ -134,6 +181,12 @@ systemctl start cancong-ops
 | 上报返回 400 `bad batch` | 批 >500 条或 body 非 `{events:[...]}` 数组 |
 | 查询返回 400 `bad range` | `from/to` 非 `YYYY-MM-DD`、倒置或跨度 >400 天 |
 | 库体积持续增长 | 确认夜间 job 在跑(`last_job_day`)；必要时手动 `PRAGMA incremental_vacuum` |
+| 看板看不到「版本发布」页签 | 该页签只对 `role=admin` 显示；普通用户即使拿到 URL，推包/发布也会被服务端 `requireAdmin` 挡成 403 |
+| 推包返回 500 `stage failed` | `OPS_RELEASES_DIR` 对服务用户不可写，或盘满(见 §9.1) |
+| 推包返回 400 `upload aborted` | 请求在传输途中被掐断：查反向代理的 `client_max_body_size` / `proxy_read_timeout`(见 §9.1)；本进程侧已关掉 `requestTimeout` |
+| 推包返回 400 `empty body` | 用 curl 复现时误带了 `-H 'content-type: application/json'`——`express.json` 会先吃掉 body。用 `--data-binary @pkg.exe` 且不设该头(或设 `application/octet-stream`) |
+| 发布被拒「草稿区缺 X 变体」 | 两个变体没落进同一个 `staging/<版本>/`(常见于中途改了版本号)。看板「草稿区总览」能看到实际落盘情况，删掉错版本重传 |
+| 客户端查版恒 204 | `index.json` 的 `published` 为 `null`——尚未发布，或刚被下架且无可回滚版本 |
 
 ## 11. PostgreSQL 迁移触发条件(预留，非 v1 工作)
 

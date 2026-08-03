@@ -17,6 +17,7 @@
 //   OPS_SESSION_DAYS    登录会话有效期天数，默认 7
 //   OPS_SECURE_COOKIE   =1 时会话 Cookie 带 Secure（HTTPS 部署用），默认关
 //   OPS_RELEASES_DIR    应用更新发布区目录，默认 ./releases（磁盘规划见 README：3 版本 ≈ 1.2GB）
+// 安装包上传是分钟级长请求，listen 后关掉 srv.requestTimeout（见文件末）。
 // 时区不做 env：day 归日依赖部署机 TZ（systemd 单元钉 TZ=Asia/Shanghai）。
 
 const path = require('path');
@@ -88,6 +89,11 @@ if (require.main === module) {
   const srv = app.listen(port, () => {
     console.log('[server] cancong-ops listening on', srv.address().port);
   });
+  // 安装包上传（POST /v1/update/upload，with-linux 变体 ~370MB）会撞上 Node 18+ 默认的
+  // requestTimeout=300s：慢链路上传到一半被掐断 → req 'aborted' → 400 'upload aborted'。
+  // 整请求超时关掉；headersTimeout 保留（慢头攻击仍被挡住）。
+  srv.requestTimeout = 0;
+  srv.headersTimeout = 60_000;
   for (const sig of ['SIGINT', 'SIGTERM']) {
     process.on(sig, () => {
       console.log('[server] shutdown on', sig);

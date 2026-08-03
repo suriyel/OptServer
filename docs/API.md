@@ -11,6 +11,7 @@
   - [事件类型与 payload](#事件类型与-payload)
 - [健康检查 `GET /healthz`](#健康检查-get-healthz)
 - [查询接口 `GET /v1/stats/*`](#查询接口-get-v1stats)
+- [CSV 导出 `GET /v1/export/*`](#csv-导出-get-v1export)
 - [应用自动更新 `/v1/update/*`](#应用自动更新-v1update)
 - [错误响应](#错误响应)
 
@@ -223,6 +224,23 @@ GET /healthz → 200 { "ok": true }
 
 ---
 
+## CSV 导出 `GET /v1/export/*`
+
+四个端点与看板同源同口径，鉴权与 `/v1/stats/*` 一致（登录即可）。响应 `Content-Type: text/csv; charset=utf-8` + `Content-Disposition: attachment`，正文**中文表头 + UTF-8 BOM**（Excel 直接双击不乱码），数值列导原始整数、格式化交给 Excel。
+
+| 端点 | 参数 | 列 |
+|---|---|---|
+| `GET /v1/export/blueprints` | `from`/`to`（同 stats，缺省近 30 天） | 工作流·运行·成功·失败run·中止·失败事件·活跃时长ms·中断·输入Token·输出Token·Token合计 |
+| `GET /v1/export/users` | `from`/`to` | 用户·主机·会话数·run数·失败数·活跃时长ms·输入Token·输出Token·Token合计 |
+| `GET /v1/export/failures` | `from`/`to` | 时间·用户·主机·工作流·来源·类型·原因·版本·事件ID |
+| `GET /v1/export/installs` | 无（全量快照） | 用户·主机·版本·平台·渠道·活动会话·最后在线·首次上线·实例ID |
+
+- **`failures` 同时含装失败**：`update_apply{ok:false}` 与 `failure_event` 同列，字段口径必须与看板「最近失败」表一致——`来源=auto-update`、`类型=update:<reason>`、`原因=<from> → <to>（第 N 次尝试）`。两端各写一份（浏览器 ESM / Node CJS 无共享层），**改一处必须同步改 `public/js/features/failures.js::renderRecent`**，否则同一批数据导出与看板对不上。
+- **安全上限**：`failures` 单次最多 10 万行，命中即 `[export]` 日志提示可能截断（缩小 `from`/`to` 重导）。其余端点读 `daily_*` 小表，无上限。
+- 范围非法（非 `YYYY-MM-DD`、倒置、跨度 >400 天）→ `400 {ok:false,error:'bad range'}`（JSON，非 CSV）。
+
+---
+
 ## 应用自动更新 `/v1/update/*`
 
 客户端设计权威源：TechDemos `docs/APP-AUTO-UPDATE-DESIGN.md`（§5 契约、§7 服务端设计）。
@@ -261,6 +279,14 @@ GET /healthz → 200 { "ok": true }
 | `DELETE /v1/update/draft/:version/:variant` | 删草稿 |
 
 发布区保留最近 **3** 个版本的文件供回滚，更旧自动清理（磁盘规划：3 × ~370MB ≈ 1.2GB，见 README）。
+
+上传**无尺寸上限**且是分钟级长请求：进程侧已在 `listen` 后关掉 `srv.requestTimeout`（Node 18+ 默认 300s 会把大包截断成 `400 upload aborted`），反向代理需同步放宽（见 [DEPLOYMENT.md §9.1](./DEPLOYMENT.md)）。curl 复现时**不要带 `-H 'content-type: application/json'`**——`express.json` 会先吃掉 body，服务端只看到 `400 empty body`：
+
+```bash
+curl -X POST --data-binary @cancong-portable-0.0.4.exe \
+  -H 'content-type: application/octet-stream' -H "authorization: Bearer $TOKEN" \
+  "http://host:5900/v1/update/upload?variant=slim&version=0.0.4&filename=cancong-portable-0.0.4.exe"
+```
 
 ### `update_apply` 事件
 

@@ -1,7 +1,7 @@
 # cancong 采集端实现 & 联调 Handoff
 
 > 面向：在 **蚕丛 harness 仓库（TechDemos）** 实现遥测采集模块 `server-telemetry/` 的开发者。
-> 服务器端 **cancong-ops 已实现到 v0.3.0**（ingest + 存储聚合 + stats API + 看板 + 实时视图），本仓库即契约来源。
+> 服务器端 **cancong-ops 已实现到 v0.4.0**（ingest + 存储聚合 + stats/export API + 看板 + 实时视图 + 登录鉴权 + 应用自动更新发布面），本仓库即契约来源。
 > 本次工作 = 设计文档里程碑 **M3（客户端采集）**：让 harness 按契约把事件打到 cancong-ops，并联调打通看板。
 
 契约权威文件（本仓库）：[docs/API.md](./API.md)（信封 + 端点）、[OPS-TELEMETRY-DESIGN.md](../OPS-TELEMETRY-DESIGN.md) §5/§6（客户端设计）。本 Handoff 是二者的落地清单，若有出入以 **API.md + 服务器代码** 为准。
@@ -66,6 +66,7 @@
 | `bp_run_start` | 工作流 run 新建 | `{ blueprintId, runId, tool }` |
 | `bp_run_end` | 工作流 run 终态 | `{ blueprintId, runId, status, activeMs, haltReason?, `**`interruptions★, inputTokens★, outputTokens★`**` }` |
 | `failure_event` | 异常信号 | `{ source, kind, reason, tool, runId?, `**`blueprintId★`**` }` |
+| `update_apply` | 自动升级终局（v0.4 新增） | `{ from, to, variant, ok, attempts, reason? }`——`reason` 仅 `ok:false` 时带，见下 |
 
 **逐事件示例**（payload 部分）：
 ```jsonc
@@ -92,9 +93,9 @@
 
 ---
 
-## 5. ★新增字段的数据来源（本次客户端最需要打通的三处，需在 harness 核实/实现）
+## 5. ★新增字段的数据来源（本次客户端最需要打通的几处，需在 harness 核实/实现）
 
-这三类是 v0.2/v0.3 服务器新消费、原 harness 未采集的，**是本次采集端的核心开发点**：
+前三类是 v0.2/v0.3 服务器新消费、原 harness 未采集的，第四类随 v0.4 自动更新一起做，**都是本次采集端的核心开发点**：
 
 1. **Token（session_end / bp_run_end 的 inputTokens/outputTokens）**
    - 来源：harness 调模型 API 的响应 usage（input/output tokens）。需在会话/run 维度**累加**每次调用的 usage。
@@ -109,6 +110,12 @@
 3. **blueprintId（failure_event 归因）**
    - 语义：失败发生在哪个工作流 run 内。带上则失败在看板归因到具体工作流。
    - 来源：失败发生时若处于某 run 上下文，取当前 runId 对应的 blueprintId 一并带上；不在 run 内则不带（服务器仍计入总量失败，只是不归因工作流）。
+
+4. **update_apply（v0.4 新增，随自动更新功能一起做）**
+   - 触发：升级终局（启动自检判定成功 / 最终失败）各上报一次，**不是每次尝试都报**（`attempts` 带上试了几次即可）。
+   - `reason`（仅 `ok:false` 时带）取值白名单：`sha_mismatch` · `sfx_exit_nonzero` · `sfx_timeout` · `version_mismatch` · `other_instance` · `parent_alive` · `download_failed` · `disk_full` · `unknown`。
+   - 服务器侧：`ok:false` 计入 `daily_fail`（`kind=update:<reason>`）→ 失败页 kind 分布与最近失败列表可见（CSV 导出同口径）；`ok:true` 只存原始（升级铺开进度看实例页的 `appVersion` 分布即可）。
+   - 查版/下载契约见 [API.md §应用自动更新](./API.md#应用自动更新-v1update)，客户端设计权威源是 TechDemos `docs/APP-AUTO-UPDATE-DESIGN.md`。两个端点**免鉴权**（与 `POST /v1/events` 同档）。客户端只认 manifest 里的 `packages[variant].file`，**绝不自己拼文件名**。
 
 > 说明：**v0.3 的「实时视图」不需要客户端新增任何字段**——它只是把已有事件按分钟直查呈现。客户端把上述事件正常发出即可，实时页自动有数据。仅需注意：服务器按**接收时刻**分桶，30s 批量 flush 会让实时分钟桶有 ≤30s 延迟（可接受；若要更实时可调小 flush 间隔）。
 
@@ -172,7 +179,7 @@ __tests__/     node --test，本地 stub HTTP server，零外网
    - `curl 'localhost:5900/v1/stats/blueprints'` → 各工作流 runs/失败/**activeMs/interruptions/token** 有值，失败归因到工作流。
    - `curl 'localhost:5900/v1/stats/users/top?metric=tokens'` → 你的 user@host 在列，token 非 0。
    - `curl 'localhost:5900/v1/stats/realtime?window=60'` → 最近几分钟有分钟桶（events/sessions/tokens/activeUsers）。
-   - 浏览器开 `localhost:5900` → 概览/趋势(切「实时」)/工作流/用户/失败 六页真数据可视。
+   - 浏览器开 `localhost:5900`（需登录，默认 admin/admin123）→ 概览/趋势(切「实时」)/工作流/用户/失败/实例 六页真数据可视；「版本发布」页为管理员运维面，与采集无关。
 4. **验幂等**：把同一批事件再 POST 一次 → 响应 `dup` 增大、`accepted=0`，看板数值不变（不双计）。
 5. **验 fail-open**：停掉 cancong-ops → harness 继续正常工作（主流程零影响）→ 事件落 spool → 重启 cancong-ops → 下轮 flush 补发，看板补齐。
 6. **验限流**：短时间制造 >30 次失败/小时 → 客户端应 cap 到 30，看板失败数不超采。
@@ -183,7 +190,7 @@ __tests__/     node --test，本地 stub HTTP server，零外网
 
 ## 10. 验收清单（M3 完成判据）
 
-- [ ] 六页看板在真实 harness 使用下都有数据，口径与实际对得上。
+- [ ] 统计六页（概览/趋势/工作流/用户/失败/实例）在真实 harness 使用下都有数据，口径与实际对得上。
 - [ ] Token：session_end 报会话总量、bp_run_end 报 run 子集，概览/趋势/用户/工作流 token 合理。
 - [ ] interruptions / blueprintId 归因在工作流页与失败页正确体现。
 - [ ] 实时页近 24h 分钟趋势随 harness 活动实时变化（≤30s 延迟）。

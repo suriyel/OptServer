@@ -4,6 +4,50 @@
 
 ---
 
+## v0.4.0 — 2026-08-02
+
+登录鉴权 + CSV 导出 + 应用自动更新发布面。看板从「只读统计」扩成「带账号的运维台」，并接管客户端的版本分发。
+
+### 新增能力
+
+**登录鉴权（只保护看板）**
+- 首次启动**预置一个管理员**（`OPS_ADMIN_USER`/`OPS_ADMIN_PASSWORD`，默认 `admin`/`admin123`，用默认密码时启动打印告警）；管理员可在「账号管理」新增普通用户，**管理员永远只有一个**（应用层新增用户恒 `role=user`，库层 `accounts` 上的 partial unique index 兜底）。
+- 浏览器走 `ops_session` Cookie（`HttpOnly`），脚本走 `Authorization: Bearer`。口令用内置 `crypto` scrypt 哈希 + `timingSafeEqual`，**零新增依赖**。
+- **保护范围只到看板**：`POST /v1/events` 采集上报完全开放（内网即信任，客户端不带凭据，接入无需改动）；`GET /v1/update/latest` 与 `/v1/update/download/*` 同档开放。其余页面与 `/v1` 需登录，未登录页面 → 302 `login.html`、`/v1` → 401。
+
+**CSV 导出**
+- 工作流/用户/失败/实例四页各加「导出 CSV」按钮，按当前日期范围下载。中文表头 + UTF-8 BOM（Excel 双击不乱码），数值列导原始整数。
+- 导出突破看板展示上限：用户导全量全指标、失败导明细（不再是最近 100 条）、实例导全部。新端点 `GET /v1/export/{blueprints,users,failures,installs}` 复用现有 DAO，不改动既有查询/聚合/ingest。
+
+**应用自动更新发布面**
+- 新增「版本发布」页（仅管理员可见）：上传 `slim`/`with-linux` 两变体安装包 → 服务端复算 sha256 与大小、校验版本递增 → 发布；支持一键下架回滚，发布区保留最近 3 个版本（约 1.2GB，见 [DEPLOYMENT.md §9.1](./DEPLOYMENT.md)）。
+- 客户端**免鉴权**访问 `GET /v1/update/latest` 查版、`GET /v1/update/download/:file` 下载（`res.sendFile` 原生支持 `Range` → 断点续传白拿）。尚无已发布版本返 **204**（不是 404，避免与路由错误混淆）。
+- **版本地板**（`minSupported`）：留空 = 不阻断；填了则低于此版本的客户端被阻断强制升级——唯一召回手段。
+- 客户端上报的 `update_apply` 接入聚合：装失败以 `kind=update:<reason>` 进入失败页 kind 分布与最近失败列表，CSV 导出同口径。
+
+**采集端联调**
+- 新增 [CLIENT-HANDOFF.md](./CLIENT-HANDOFF.md)：面向蚕丛 harness 的 server-telemetry 开发者，一次讲清传输契约、7 类事件 payload、三处需新采集的数据来源（token/interruptions/blueprintId）、客户端模块挂接点、三层开关与可靠性设计、端到端联调步骤与验收清单。
+
+### 关键实现
+
+- **发布面存储不进 SQLite**：`releases/index.json`（`{published, history}`，tmp+rename 原子写）+ `staging/<ver>/` 草稿 + `published/<ver>/` 已发布。与遥测库解耦，出事时运维可直接 `cat`/手改救急；包本体在构建机另有一份，丢了可重传再发布。
+- **上传是 raw octet-stream 边写边算 sha256**，**不引入 multer/multipart**——`express.json` 只拦 `application/json`，不会吃掉它的 body；浏览器侧 `xhr.send(file)` 流式发送并报进度。同 (版本, 变体) 重传直接覆盖（幂等）。发布时 staging → published 同卷 `rename`，文件名归一为无空格 slug。
+- **schema 迁移 v3**：新增 partial 索引 `ix_update_recent ON events(day, server_ts) WHERE type='update_apply'`（只加索引，不加表）。已有库可用 `npm run migrate -- --db <path>` 停服单独迁移，脚本不复制 DDL、直接调 `openDb()`，不会与 `MIGRATIONS` 漂移。
+- **最近失败列表改写为 `UNION ALL`**：列表要同时列出 `failure_event` 与 `update_apply{ok:false}`，但一条带 `OR` 的谓词会让两个 partial 索引**同时**失效（SQLite 退化成扫全窗口 + TEMP B-TREE 排序，bench 的 20ms 验收线会破）。拆成两个各带 `LIMIT` 的子查询后各走各的索引，外层只归并 ≤2×limit 行。
+- **上传是分钟级长请求**：`listen` 后关掉 `srv.requestTimeout`（Node 18+ 默认 300s 会把 ~370MB 的包截断成 `400 upload aborted`），保留 `headersTimeout=60s`。反向代理需同步放宽。
+
+### 修复
+
+- **版本发布页选完包没有任何上传入口，发布又被拒「草稿区缺变体」**。根因是上传被做成 file input `change` 事件的隐式副作用：版本号未填时静默早退，而 `input.value` 未清空 → 重选同一文件不再触发 `change` → 没有上传按钮可退守，用户彻底卡死，包永远进不了草稿区。改为**每个变体行配独立「上传」按钮**（版本号已合法时仍自动发起，按钮始终可用于重试）、版本号缺失的提示落在出问题的那一行并保留已选文件名、首次上传后锁死版本号（防两变体落进不同 `staging/<ver>/`）、新增「草稿区总览」列出服务器实际落盘情况并接上早已实现却没有 UI 入口的删草稿端点。
+- **「发布」按钮初始可点**：`#rel-publish` 初始 HTML 缺 `disabled` 且 `init()` 不调 `renderDraftStatus()`，草稿列表没回来（或 `refresh()` 抛错）时按钮一直可点，点下去服务端回「草稿区缺 X 变体」，被误读成包传丢了。现在初始即禁用，`refresh()` 的 catch 分支也强制置灰。
+- **失败 CSV 与看板口径对齐**：导出侧补上 `update_apply{ok:false}` 的列映射（来源 `auto-update`、类型 `update:<reason>`、原因为版本迁移描述），与看板「最近失败」表一致，同一批数据两处不再对不上。
+
+### 验证
+
+96 个 `node:test` 用例（新增 `auth` 口令/会话/门禁白名单/单一 admin、`export` CSV 列/BOM/注入防护、`update` 上传幂等/发布自检/Range 下载/下架回滚/路径穿越/ingest 聚合）。发布面另经 Playwright 端到端实测：不填版本号选包 → 行内报错且文件保留 → 补版本号点「上传」（不重选文件）→ 两包齐备 → 发布 → `/v1/update/latest` 返回完整 manifest、下载字节 sha256 与源文件一致、`Range` 回 206 → 下架回 204；并注入 `fetch` 失败验证加载异常时「发布」保持置灰。
+
+---
+
 ## v0.3.0 — 2026-07-04
 
 趋势页统一 ECharts + 新增实时视图。

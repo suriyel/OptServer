@@ -105,6 +105,32 @@ test('export/failures：拍平 payload 明细 + 完整原因', async (t) => {
   assert.ok(lines[1].includes('wf-1'));
 });
 
+test('export/failures：update_apply 行按看板同口径拍平（来源/类型/原因）', async (t) => {
+  const h = await makeApp(t, { nowFn: () => NOW });
+  ingestBatch(h.dao, [
+    makeEvent({ ...A, type: 'update_apply',
+      payload: { ok: false, reason: 'sha_mismatch', from: '0.0.3', to: '0.0.4', attempts: 2 } }),
+    makeEvent({ ...B, type: 'update_apply', payload: { ok: true, from: '0.0.3', to: '0.0.4' } }),
+  ], D2);
+  const { text } = await getCsv(h.baseUrl, '/v1/export/failures' + range());
+  const lines = csvLines(text);
+  assert.strictEqual(lines.length, 2);                     // 表头 + 仅 ok:false 那条（成功不入列）
+  // 与 public/js/features/failures.js::renderRecent 同口径
+  assert.ok(lines[1].includes('auto-update'), '来源列应为 auto-update');
+  assert.ok(lines[1].includes('update:sha_mismatch'), '类型列应为 update:<reason>');
+  assert.ok(lines[1].includes('0.0.3 → 0.0.4（第 2 次尝试）'), '原因列应为版本迁移描述');
+});
+
+test('export/failures：update_apply 缺字段时降级不炸（reason/from/to/attempts 全缺）', async (t) => {
+  const h = await makeApp(t, { nowFn: () => NOW });
+  ingestBatch(h.dao, [makeEvent({ ...A, type: 'update_apply', payload: { ok: false } })], D2);
+  const { status, text } = await getCsv(h.baseUrl, '/v1/export/failures' + range());
+  assert.strictEqual(status, 200);
+  const lines = csvLines(text);
+  assert.ok(lines[1].includes('update:unknown'), '缺 reason 应归 update:unknown（与 daily_fail 同口径）');
+  assert.ok(lines[1].includes('? → ?（第 ? 次尝试）'));
+});
+
 test('export/installs：无范围恒 200 + 全部实例 + 今日文件名头', async (t) => {
   const { baseUrl } = await seededApp(t);
   const { status, text } = await getCsv(baseUrl, '/v1/export/installs');

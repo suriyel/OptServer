@@ -6,3 +6,4 @@ data/
 bench.db*
 .env
 .playwright-mcp/
+releases/

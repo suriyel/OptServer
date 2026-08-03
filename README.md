@@ -1,6 +1,6 @@
 # cancong-ops
 
-蚕丛 harness 的运营统计服务器：接收各实例上报的使用事件（`POST /v1/events`），SQLite 存储 + 增量聚合，提供查询聚合 API（`GET /v1/stats/*`）与自建看板（概览/趋势/工作流/用户/失败/实例 六页）。
+蚕丛 harness 的运营统计服务器：接收各实例上报的使用事件（`POST /v1/events`），SQLite 存储 + 增量聚合，提供查询聚合 API（`GET /v1/stats/*`）与自建看板（概览/趋势/工作流/用户/失败/实例/版本发布 七页）。兼任客户端的**应用自动更新发布面**（`/v1/update/*`：管理员推包发版，客户端免鉴权查版下载）。
 
 契约与设计依据：[OPS-TELEMETRY-DESIGN.md](./OPS-TELEMETRY-DESIGN.md)——§4 事件信封（双端唯一契约）、§7.3 查询 API（看板唯一契约）。
 
@@ -49,6 +49,7 @@ curl -s -X POST http://localhost:5900/v1/events -H 'content-type: application/js
 | `OPS_ADMIN_PASSWORD` | `admin123` | 预置管理员初始密码；用默认值时启动打印告警，请尽快改 |
 | `OPS_SESSION_DAYS` | `7` | 登录会话有效期天数 |
 | `OPS_SECURE_COOKIE` | 关 | 设为 `1` 时会话 Cookie 带 `Secure`（HTTPS 部署用） |
+| `OPS_RELEASES_DIR` | `./releases` | 应用更新发布区目录（磁盘规划见下，约 1.2GB） |
 
 ## 时区（重要）
 
@@ -68,10 +69,11 @@ curl -s -X POST http://localhost:5900/v1/events -H 'content-type: application/js
 ```bash
 npm test                  # node:test 确定性测试（无外网、无浏览器）
 npm run bench             # 700 万行压测：灌数 → 全量重算 → 逐查询 p50/p95 对照验收线
+npm run migrate -- --db <path>   # 对已有库单独跑 schema 迁移（不启动服务；幂等）
 npm run vendor            # 升级 echarts/字体后重拷 public/vendor/（vendored 产物提交进 git）
 ```
 
-目录：`lib/`（db 唯一 SQL 层 / ingest / stats / aggregate / time-utils）、`public/`（看板：js/core + js/features 分层）、`__tests__/`、`scripts/`、`deploy/`。
+目录：`lib/`（`db` 唯一 SQL 层 / `ingest` / `stats` / `export` + `csv` / `auth` / `update` / `aggregate` / `time-utils`）、`public/`（看板：js/core + js/features 分层）、`__tests__/`、`scripts/`、`deploy/`。
 
 ## API 速览
 
@@ -95,6 +97,16 @@ GET  /v1/stats/users/top?from&to&metric&limit  # 高频用户 Top N（metric 排
 GET  /v1/stats/blueprints?from&to # 各工作流 runs/失败/E2E/中断/token
 GET  /v1/stats/realtime?window=   # 近 24h 按分钟直查 events（实时视图）
 GET  /v1/installs          # 实例明细
+GET  /v1/export/{blueprints,users,failures,installs}?from&to  # CSV 导出（中文表头 + UTF-8 BOM）
+
+# 应用自动更新（详见 docs/API.md）
+GET  /v1/update/latest             # 查版：manifest 或 204（免鉴权）
+GET  /v1/update/download/:file     # 下载安装包，支持 Range 断点续传（免鉴权）
+POST /v1/update/upload?variant&version[&filename]   # raw octet-stream 推包（管理员）
+GET  /v1/update/drafts             # 草稿区 + 当前已发布 + 可回滚历史（登录即可读）
+POST /v1/update/publish            # { version, notes, minSupported } 服务端自检后发布（管理员）
+POST /v1/update/unpublish          # 下架当前版本并回滚到上一版（管理员）
+DELETE /v1/update/draft/:version/:variant           # 删草稿（管理员）
 ```
 
 ## 登录鉴权
@@ -103,3 +115,17 @@ GET  /v1/installs          # 实例明细
 
 - **保护范围**：**只保护 web 看板**——看板页面与查询/账号接口（`/v1/stats/*`、`/v1/export/*`、`/v1/auth/users*` 等）都要求登录会话；未登录访问页面 → 302 跳 `/login.html`，访问受保护 `/v1` → 401。**采集端上报 `POST /v1/events` 完全开放、无需鉴权**（内网即信任，cancong 客户端不带任何凭据，接入无需改动）。白名单还含 `/healthz`、`/login.html`、`POST /v1/auth/login`。全局门禁在 `server.js` 一处（`createAuthGate`），逻辑集中在 `lib/auth.js`。
 - **会话**：浏览器登录后用 `ops_session` Cookie（`HttpOnly`）访问看板；脚本化访问受保护接口时可选用 `Authorization: Bearer <token>`（token 来自 `/v1/auth/login` 返回体）。口令用内置 `crypto` scrypt 哈希，无第三方依赖。
+
+## 应用自动更新发布
+
+看板「版本发布」页（**仅管理员可见**，服务端 `requireAdmin` 才是真正把关）一页走完发版：
+
+1. **先填版本号**（三段数字，如 `0.0.4`）——它决定包落进 `staging/<版本>/`，是上传的前置条件。没填就选包时，出问题的那一行会红字提示、版本框高亮；**已选的文件会留着**，补好版本号直接点该行的「上传」即可，不必重选。
+2. **两个变体各选包上传**（`slim` / `with-linux`）。服务端边写边算 sha256 落草稿区，同 (版本, 变体) 重传直接覆盖（幂等）。首次上传后版本号锁定，要换版本点「换版本」——防两个变体落进不同版本目录。
+3. **两包齐备后「发布」解禁**。服务端自检：两变体齐备 + 版本号三段数字且高于当前已发布 + 大小/sha256 复算与上传记录一致 + 版本地板为空或合法且不高于发布版本。任一不过原样回错误文案，包留在草稿区可重传。
+4. **下架/回滚**：删当前版本文件并回退到上一个文件仍在的已发布版本；没有则清空（客户端查版回 204，不提示更新）。发布区保留最近 **3** 个版本供回滚。
+5. **草稿区总览**列出服务器上全部草稿及各变体就位情况，传错版本号可就地删除。
+
+> **版本地板**（`minSupported`）留空 = 不阻断。填了则低于此版本的客户端被阻断强制升级——这是唯一的召回手段，慎用。
+
+客户端侧免鉴权：`GET /v1/update/latest` 查版、`GET /v1/update/download/:file` 下载（支持 `Range` 断点续传）。客户端只认 manifest 里的 `packages[variant].file`，绝不自己拼文件名。升级终局由客户端上报 `update_apply` 事件，装失败以 `kind=update:<reason>` 进入失败页分布与最近失败列表（CSV 导出同口径）。
