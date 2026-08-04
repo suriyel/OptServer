@@ -19,9 +19,10 @@
 npm ci && npm start        # 启动，默认 http://localhost:5900
 curl localhost:5900/healthz            # 探活
 node scripts/seed-demo.js --db ./data/ops.db   # 灌演示数据
-npm test                   # 113 个单测
+npm test                   # 137 个单测
 npm run bench              # 700 万行查询压测
 npm run migrate -- --db ./data/ops.db          # 对已有库单独跑 schema 迁移（幂等）
+npm run backfill -- --db ./data/ops.db         # 回填 recency（升级到 v4 后跑一次；幂等）
 ```
 
 技术形态：Node CJS 单进程 · express + better-sqlite3 两依赖 · 零构建 · 数据即单个 `.db` 文件。

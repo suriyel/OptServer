@@ -247,6 +247,8 @@ main { position: relative; z-index: 1; max-width: 1280px; margin: 0 auto; paddin
 .chart { width: 100%; }
 .echart { width: 100%; height: 300px; }
 .echart-tall { width: 100%; height: 380px; }
+/* 热力图要 7 行 + 底部 visualMap，比折线高一截 */
+.echart-heat { height: 340px; }
 
 /* ---- 分段控件（图表指标切换） ---- */
 .metric-seg { display: inline-flex; gap: 2px; padding: 3px; }
@@ -289,6 +291,13 @@ td { color: var(--text-2); }
 .cmp-td.delta-up, .cmp-delta.delta-up { color: var(--green); }
 .cmp-td.delta-down, .cmp-delta.delta-down { color: var(--red); }
 .table-note { color: var(--dim); font-size: var(--fs-2xs); letter-spacing: 0.03em; padding: 10px 12px 0; }
+
+/* ---- recency（上次活跃 / 沉默） ---- */
+/* 沉默超阈值用 amber 而非 red：这不是故障，是"该看一眼"的信号；red 留给失败列 */
+.silent-warn { color: var(--amber); }
+/* 区间内零活动的整行压暗——它是被特意捞回来的历史实体，不该和活跃行抢视线 */
+.row-silent td { color: var(--dim); }
+.row-silent td .silent-warn { color: var(--amber); }
 
 /* ---- 明细表点行展开 ---- */
 .row-x { cursor: pointer; }

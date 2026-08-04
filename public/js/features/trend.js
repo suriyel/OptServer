@@ -5,15 +5,18 @@
 
 import { getStats, makeGuard } from '../core/api.js';
 import { fmtDuration, fmtInt } from '../core/fmt.js';
-import { makeChart, timeLine, timeBars, EC } from '../core/echarts.js';
+import { makeChart, timeLine, timeBars, heatmap, EC } from '../core/echarts.js';
 import { rangeParams } from '../core/range.js';
 
 const RT_WINDOW = 1440; // 实时窗口分钟数（24h）
+const HOURS_DAYS = 30;  // 作息窗口：固定 30 天，**不跟随顶栏 range**（见 refreshHours 注释）
 const MODE_KEY = 'cancongOps.trendMode';
 
+// 三个模式恰好是三个时间尺度：日（趋势）/ 分钟（实时）/ 周×时（结构）
 const MODES = [
   { value: 'daily', label: '按日期' },
   { value: 'realtime', label: '实时' },
+  { value: 'hours', label: '作息' },
 ];
 
 /** @type {HTMLElement} */ let root;
@@ -42,10 +45,10 @@ export function init(el) {
       </div>
       <div id="tr-hint" class="muted"></div>
     </div>
-    <div class="panel"><h3 id="tr-t1"></h3><div class="echart" id="tr-c1"></div></div>
-    <div class="panel"><h3 id="tr-t2"></h3><div class="echart" id="tr-c2"></div></div>
-    <div class="panel"><h3 id="tr-t3"></h3><div class="echart" id="tr-c3"></div></div>
-    <div class="panel"><h3 id="tr-t4"></h3><div class="echart" id="tr-c4"></div></div>
+    <div class="panel" id="tr-p1"><h3 id="tr-t1"></h3><div class="echart" id="tr-c1"></div></div>
+    <div class="panel" id="tr-p2"><h3 id="tr-t2"></h3><div class="echart" id="tr-c2"></div></div>
+    <div class="panel" id="tr-p3"><h3 id="tr-t3"></h3><div class="echart" id="tr-c3"></div></div>
+    <div class="panel" id="tr-p4"><h3 id="tr-t4"></h3><div class="echart" id="tr-c4"></div></div>
     <div class="error-box" id="tr-error"></div>`;
   for (const id of ['c1', 'c2', 'c3', 'c4']) charts[id] = makeChart(/** @type {HTMLElement} */ (el.querySelector('#tr-' + id)));
   el.querySelector('#tr-mode').addEventListener('click', (e) => {
@@ -64,6 +67,7 @@ export async function refresh() {
   const g = guard.next();
   try {
     if (mode === 'realtime') await refreshRealtime(g);
+    else if (mode === 'hours') await refreshHours(g);
     else await refreshDaily(g);
   } catch (e) {
     errBox.textContent = '加载失败：' + /** @type {Error} */ (e).message;
@@ -73,9 +77,13 @@ export async function refresh() {
 
 function setTitles(t) {
   root.querySelector('#tr-t1').textContent = t[0];
-  root.querySelector('#tr-t2').textContent = t[1];
-  root.querySelector('#tr-t3').textContent = t[2];
-  root.querySelector('#tr-t4').textContent = t[3];
+  root.querySelector('#tr-t2').textContent = t[1] || '';
+  root.querySelector('#tr-t3').textContent = t[2] || '';
+  root.querySelector('#tr-t4').textContent = t[3] || '';
+  // 作息模式只有一张图；藏掉其余三块，别留三个空面板
+  for (let i = 2; i <= 4; i++) {
+    root.querySelector('#tr-p' + i).hidden = !t[i - 1];
+  }
 }
 
 // ---- 按日期 ----
@@ -90,6 +98,7 @@ async function refreshDaily(g) {
   root.querySelector('#tr-heading').textContent = '活动趋势';
   root.querySelector('#tr-hint').textContent = '';
   setTitles(['活跃用户（DAU / WAU）', '会话数与总时长', 'Token 消耗（输入 / 输出）', '工作流 run 终态分布']);
+  setHeatHeight(false);
 
   charts.c1.set(timeLine({ categories: x, series: [
     { name: 'DAU', color: EC.amber, values: dau.days.map((d) => d.dau) },
@@ -130,6 +139,7 @@ async function refreshRealtime(g) {
   root.querySelector('#tr-heading').textContent = '实时活动（近 24 小时 · 每分钟）';
   root.querySelector('#tr-hint').textContent = '数据来自 events 近窗口直查；「活跃人数」= 每分钟有事件的去重用户（非在线数）。';
   setTitles(['事件总量 / 分钟', '工作流 run 终态 / 分钟', '活跃人数 与 会话数 / 分钟', 'Token 消耗 / 分钟']);
+  setHeatHeight(false);
 
   charts.c1.set(timeLine({ categories: x, zoom: true, series: [
     { name: '事件', color: EC.amber, values: get.events, area: true },
@@ -146,6 +156,32 @@ async function refreshRealtime(g) {
   charts.c4.set(timeLine({ categories: x, zoom: true, series: [
     { name: 'Token', color: EC.violet, values: get.tokens, area: true, fmt: fmtInt },
   ] }));
+}
+
+// ---- 作息（24×7，固定近 30 天）----
+async function refreshHours(g) {
+  const d = await getStats('/stats/hours', { days: String(HOURS_DAYS) });
+  if (guard.stale(g)) return;
+  root.querySelector('#tr-heading').textContent = `作息分布（近 ${d.days} 天 · 周×时）`;
+  // 窗口固定、不跟顶栏 range：7 天档下每格只有 1 个样本，画出来是噪声不是规律。
+  // 这条必须写在界面上，否则用户切了档位发现图不动会以为坏了。
+  const notes = [`固定近 ${d.days} 天，**不受顶栏统计范围影响**（短窗口下每个「周几×小时」格子样本太少，画出来是噪声）。`,
+    `实到数据 ${d.coveredDays} 天${d.firstDay ? `（自 ${d.firstDay} 起）` : ''}。`,
+    '归属按**事件真实发生时刻**（客户端时钟）折算到服务器时区，与其它页按接收时刻归日的口径不同，两者不可对账。'];
+  if (d.droppedClockSkew > 0) {
+    notes.push(`已剔除 ${d.droppedClockSkew} 条时钟异常/无时间戳的事件（它们会污染时段分布，故不计入本图）。`);
+  }
+  root.querySelector('#tr-hint').innerHTML = notes.join(' ').replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+  setTitles(['活跃事件数 / 周×时']);
+  setHeatHeight(true);
+  charts.c1.set(heatmap({ cells: d.cells.map((c) => ({ ...c, value: c.events })), valueFmt: fmtInt }));
+}
+
+// 热力图要 7 行 + 底部 visualMap，比折线高一截；切走时还原，否则日/实时视图会莫名变高
+function setHeatHeight(on) {
+  const el = /** @type {HTMLElement} */ (root.querySelector('#tr-c1'));
+  el.classList.toggle('echart-heat', on);
+  charts.c1.inst.resize();
 }
 
 function mdLabel(day) { const [, m, d] = day.split('-'); return Number(m) + '/' + Number(d); }

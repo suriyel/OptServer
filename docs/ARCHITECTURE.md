@@ -27,7 +27,7 @@ lib/
 public/              看板：index.html + login.html + js/{core,features} + css + vendor/{echarts,fonts}（七页）
 scripts/             bench.js（压测）/ seed-demo.js（灌演示数据）/ migrate.js（对已有库单独迁移）/ vendor-assets.js（拷 vendored 前端库）
 deploy/              cancong-ops.service（systemd 单元）
-__tests__/           node:test 确定性测试（96 用例）
+__tests__/           node:test 确定性测试（137 用例）
 releases/            应用更新发布区（运行时生成，OPS_RELEASES_DIR 可改；不进 git）
 ```
 
@@ -39,22 +39,48 @@ releases/            应用更新发布区（运行时生成，OPS_RELEASES_DIR 
 
 ## 3. 存储 schema
 
-10 张表(`lib/db.js`：`DDL_V1` 基础 8 张 + `DDL_V2` 鉴权 2 张)，通过 `PRAGMA user_version` 迁移(当前 **v3**——v3 只加 `ix_update_recent` 索引，不加表)。已有库可用 `npm run migrate -- --db <path>` 单独迁移，不必靠启动服务触发。
+11 张表(`lib/db.js`：`DDL_V1` 基础 8 张 + `DDL_V2` 鉴权 2 张 + `DDL_V5` 时段表 1 张)，通过 `PRAGMA user_version` 迁移(当前 **v5**——v3 加 `ix_update_recent` 索引；v4 加两列 `last_at` + `ix_daily_user_recency`；v5 加 `daily_hour` 表)。已有库可用 `npm run migrate -- --db <path>` 单独迁移，不必靠启动服务触发；v4/v5 的历史数据另需跑一次 `npm run backfill`。
 
 | 表 | 作用 | 保留 |
 |----|------|------|
 | `installs` | 实例注册表；心跳只 upsert 此表 | 永久 |
 | `events` | 原始事件(session/run/failure)；带固化的 `day` 列 | 滚动 90 天 |
-| `daily_user` | 用户维度日聚合(sessions/runs/failures/heartbeats/**in_tokens/out_tokens**...) | 永久 |
+| `daily_user` | 用户维度日聚合(sessions/runs/failures/heartbeats/**in_tokens/out_tokens**/**last_at**...) | 永久 |
 | `daily_tool` | 工具维度日聚合 | 永久 |
 | `daily_fail` | 失败维度日聚合(day, app_version, kind) | 永久 |
-| `daily_blueprint` | **工作流维度日聚合(runs/失败/active_ms/interruptions/token)** | 永久 |
+| `daily_blueprint` | **工作流维度日聚合(runs/失败/active_ms/interruptions/token/last_at)** | 永久 |
+| `daily_hour` | **使用时段分布(day, hour, blueprint_id)**；`blueprint_id=''` 为全局行 | 永久 |
 | `hb_seen` | 心跳幂等去重表 | 7 天 |
 | `meta` | 夜间 job 记账(last_job_day / last_job_at / last_job_result) | 永久 |
 | `accounts` | 登录账号(scrypt 口令+role)；`ux_accounts_admin` partial unique 保证至多一个 admin | 永久 |
 | `sessions` | 登录会话(token→username，按 `expires_at` 惰性过期) | 会话期 |
 
 > 术语：**工作流** = 内部 `blueprint`/`blueprintId`（事件 `bp_run_*` 沿用既有契约名）。
+
+### recency(`last_at`) 的三条写路径必须同口径
+
+`last_at` = 「上次实质使用」，只认 `session_start`/`session_end`/`bp_run_end`/`failure_event`——**心跳与 `instance_online` 不算**（反例：`installs.last_seen` 含心跳，装了挂着不用的人永远显示「5 分钟前」）。取值优先 `client_ts`（避免 spool 断网补发把活动记成"今天"），**单向**未来阀：仅 `client_ts > server_ts + 5min`（时钟走快，物理不可能）或不可解析时回落 `server_ts`——`client_ts` 比 `server_ts` 早很多是正常的补发，拿"差值大"当判据会把断网用户的真实时刻全删掉。
+
+规则由**两份实现**表达：JS 的 `ingest.js::eventAtOf`（增量）与 SQL 的 `db.js::EVENT_AT_EXPR`（夜间重算 + 回填）。两者一漂移，夜间重算就会静默改掉 ingest 写对的值且无人察觉，故 `__tests__/recency.test.js` 第一组用例**逐例对拍**。SQL 侧用 `strftime('%Y-%m-%dT%H:%M:%fZ', ...)` 归一为 UTC ISO——既保证字典序 = 时间序（`MAX` 才成立），也吃得下带偏移的格式。
+
+`last_at` 必须进 `recompute*` 家族（已进），否则它是库里唯一不会自愈的字段。历史行由 `npm run backfill` 一次性回填，见 [DEPLOYMENT §5.1](./DEPLOYMENT.md)。
+
+**recency 查询的两条路径**（实测数据见 [TIME-DIMENSION-PLAN §P2 性能](./TIME-DIMENSION-PLAN.md)）：`daily_user` 主键是 `(day, install_id)`，按 `(user, host)` 分组取 `MAX(last_at)` 无索引时要全表扫 + 临时 B 树，73 万行实测 413ms。故 v4 附带 `ix_daily_user_recency(user, host, last_at)`，并且——**`GROUP BY` 必须写成分列 `(user, host)`，不能写 `user || '@' || host`**：SQLite 匹配不上拼接表达式，加了索引也仍走 `TEMP B-TREE`（356ms vs 87ms）。即便如此 87ms 对 60s 自动刷新的用户页仍嫌贵，故普通 metric 路径改用 `qUserRecencyFor` 对返回的 ≤100 行做点查（Top10 实测 0.02ms），全表 `qUserRecency` 只留给「沉默排行」与 CSV 导出——那是唯一必须看全所有人才排得出名次的地方。
+
+### 时段分布(`daily_hour`)：库里第二套时间口径
+
+**day 与 hour 同源于 `client_ts`**（事件真实发生时刻，转服务器本地时区），与其余聚合表的 server 归日**不是一套**。两条必须记住的后果：
+
+1. **`daily_hour` 与 `daily_*` 永不可 join / 对账**。
+2. **全局行（`blueprint_id=''`）≠ 各工作流行之和**——会话类事件没有 `blueprintId`，只进全局行。
+
+取 `client_ts` 是因为客户端有 spool 断网缓冲：用接收时刻分桶会把断网期间的活动全堆到重连那一刻，凭空造出假高峰。`day` 也必须同源，否则「昨天 23:00 发生、今早补发」的事件会记成 `day=今天/hour=23`（今天 23 点还没到），24×7 图里跨午夜的事件还会落进错格子。
+
+不合格事件（`client_ts` 缺失/不可解析、或超 `server_ts + 5min` 的时钟走快）**直接丢弃并计数**（`meta.hour_dropped_clock_skew`，由 `/v1/stats/hours` 带出、UI 显示）——**与 recency 的处置刻意不同**：recency 回落 `server_ts`（有个值比没有强），时段分布宁可少一个样本也不能让错误小时污染分布形状。
+
+**重算是 DELETE + INSERT 而非 upsert**，因为目标行的键（client 本地日）与过滤列（`events.day` = server 接收日）不同源。正确性靠一条不变式：未来阀保证 `client_ts ≤ server_ts + 5min` ⇒ **client 日 ≤ server 日**，故用 `events.day >= fromDay`（走 `ix_events_day`）过滤是**超集**，绝不会漏；多出来的 spool 迟到件（server 日在窗内、client 日更早）用第二个条件滤掉，它们对应的旧行不在 DELETE 范围内，与其它 recompute「只修窗口内的行」语义一致。
+
+JS 侧 `ingest.js::hourBucketOf` 与 SQL 侧 `db.js::CLIENT_DAY_EXPR`/`CLIENT_HOUR_EXPR` 同口径，`__tests__/hours.test.js` 第一组用例逐例对拍（含带偏移/跨午夜/三种丢弃）。
 
 ### Token 防重复计数(关键设计)
 会话含多个 run，run token 是会话 token 子集。故 token 分两处、互不重复求和：
@@ -106,6 +132,7 @@ ingest 写入时用 `localDay(now)`(服务器本地时区)算出 `day` 并**固�
                                     │
 夜间 job（本地 3:00，setTimeout 链，错过自动补跑，防重入）
   ├─ 核对补算最近 3 天 daily_user/daily_tool/daily_fail/daily_blueprint（heartbeats 除外）
+  ├─ 重建最近 3 天 daily_hour（键是 client 本地日，故是"清窗口再建"而非 upsert）
   ├─ 90 天滚动清理 events（分块 DELETE 避免长事务锁写路径）
   ├─ hb_seen 清理 7 天外
   ├─ PRAGMA incremental_vacuum + wal_checkpoint(TRUNCATE)

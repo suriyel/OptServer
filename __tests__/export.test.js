@@ -87,7 +87,7 @@ test('export/users：全部用户 + 全部指标列（不受 Top10 限制）', a
   const { status, text } = await getCsv(baseUrl, '/v1/export/users' + range());
   assert.strictEqual(status, 200);
   const lines = csvLines(text);
-  assert.match(lines[0], /^用户,主机,会话数,run数,失败数,活跃时长ms,输入Token,输出Token,Token合计$/);
+  assert.match(lines[0], /^用户,主机,会话数,run数,失败数,活跃时长ms,输入Token,输出Token,Token合计,上次活跃,沉默天数$/);
   assert.strictEqual(lines.length, 3);                     // 表头 + userA + userB
   assert.ok(lines.some((l) => l.startsWith('userA,HOST-A,')));
   assert.ok(lines.some((l) => l.startsWith('userB,HOST-B,')));

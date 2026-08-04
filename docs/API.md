@@ -46,7 +46,7 @@
   "schemaVersion": 1,              // 必填，严格等于数字 1（字符串 "1" 会被拒）
   "eventId": "uuid",               // 必填，非空字符串 ≤128；服务器按此幂等去重
   "type": "session_start",         // 必填，非空 ≤64；见下表
-  "ts": "2026-07-02T09:30:00+08:00", // 客户端本地时刻(ISO)，仅留档；聚合以服务器接收时刻为准
+  "ts": "2026-07-02T01:30:00.000Z",  // 客户端 toISOString()，即 **UTC**；见下方「ts 的口径」
   "installId": "uuid",             // 必填，非空 ≤128
   "user": "zhangsan",              // 必填，非空 ≤256（os.userInfo().username）
   "host": "DESKTOP-XXXX",          // 必填，非空 ≤256（os.hostname()）
@@ -61,6 +61,12 @@
 **校验规则**：`schemaVersion === 1` 且 `eventId/type/installId/user/host` 均为非空字符串且不超长。任一不满足 → 该事件计入 `rejected` 并跳过。
 
 **用户口径**：去重键为 `user@host`(同一人多个数据目录实例不重复计人)；`installId` 用于实例维度统计与换名兜底。
+
+**`ts` 的口径（格式已锁定）**：必须是 `toISOString()` 的 **UTC** 形态（`Z` 结尾）。本文档早期示例写成 `"...+08:00"`，与客户端实现**从未相符**（`server-telemetry/index.js` 一直发 UTC），已改正。
+
+- **归日（`day` 列）仍以服务器接收时刻为权威**，客户端时钟不可信——这条不变。
+- 但 `ts` 已从「仅留档」升格为**两个维度的权威源**：`last_at`（上次实质使用）与 `daily_hour`（使用时段分布）。原因是客户端有 spool 断网缓冲，用接收时刻会把断网期间的活动记成"刚刚"。
+- **别改成带偏移的本地格式**：服务端按 UTC 解析，改了会让作息热力图整体偏移且**不报任何错**；铺开期内两种格式还会混在同一张表里无法分辨。客户端侧已有 parity 用例钉死此格式（`server-telemetry/__tests__/telemetry.test.js`）。
 
 ### 事件类型与 payload
 
@@ -174,13 +180,17 @@ GET /healthz → 200 { "ok": true }
 > 注意：`kinds`/`byVersion` 走永久聚合表，`recent` 读 events 原始表——受 90 天保留窗约束。
 
 ### `GET /v1/stats/users/top?from&to&metric&limit`
-高频用户 Top N。`metric` ∈ `sessions｜runs｜failures｜sessionMs｜tokens`(默认 `sessions`；非法值 `400 bad metric`)；`limit` 默认 10、上限 100。服务器按 `metric` 排序返回，前端切换 metric 即重查。
+高频用户 Top N。`metric` ∈ `sessions｜runs｜failures｜sessionMs｜tokens｜silentDays`(默认 `sessions`；非法值 `400 bad metric`)；`limit` 上限 100，**默认值随 metric 而变**——普通指标 10，`silentDays` **50**（流失名单的用处是看全，Top 10 只够看最久的那几个）。服务器按 `metric` 排序返回，前端切换 metric 即重查。
+
+> `metric=silentDays` **与其余五个不同源**：那五个按区间聚合排序，而沉默用户在区间聚合里根本没有行、永远排不出来。此值改按不带 range 的 recency 排（`lastAt` 升序 = 沉默降序，`lastAt` 为 `null`——只装了从没实质用过——排最前），区间指标列全部补 0。
 ```jsonc
 { "ok": true, "data": { "from": "...", "to": "...", "metric": "tokens",
   "compare": { "cur": { "from": "...", "to": "..." }, "prev": { "from": "...", "to": "..." } },
   "users": [
   { "user": "user025", "host": "HOST-025", "sessions": 39, "runs": 23, "failures": 6,
     "sessionMs": 80527678, "inTokens": 900453, "outTokens": 173400, "tokens": 1073853,
+    // recency（不带 range 的全局量，见下方「上次活跃与沉默天数」）
+    "lastAt": "2026-08-03T09:12:44.180Z", "silentDays": 0,
     // 环比用：同名字段在两个对比窗上的聚合（见下方「环比对比窗」）
     "cur":  { "sessions": 31, "runs": 17, "failures": 4, "sessionMs": 58800000, "tokens": 699157 },
     "prev": { "sessions": 68, "runs": 37, "failures": 12, "sessionMs": 52560000, "tokens": 1170950 } }
@@ -188,21 +198,35 @@ GET /healthz → 200 { "ok": true }
 ```
 
 ### `GET /v1/stats/blueprints?from&to`
-各工作流(内部 blueprintId)的运行/失败/E2E/中断/token，按 run 总数倒序。
+各工作流(内部 blueprintId)的运行/失败/E2E/中断/token，按 run 总数倒序，**尾部接沉默工作流**（区间内零活动但历史跑过的，指标补 0）。
 ```jsonc
-{ "ok": true, "data": { "from": "...", "to": "...",
+{ "ok": true, "data": { "from": "...", "to": "...", "today": "2026-08-03",
   "compare": { "cur": { "from": "...", "to": "..." }, "prev": { "from": "...", "to": "..." } },
+  "silentMinLifetimeRuns": 3,   // 沉默名单的准入线（常量，见下）
+  "hiddenSilent": 128,          // 未达准入线、被隐藏的沉默工作流个数
   "blueprints": [
   { "blueprintId": "fix-tests", "runsDone": 82, "runsFailed": 26, "runsHalted": 23, "runs": 131,
     "failures": 39, "activeMs": 37766873, "interruptions": 136,
     "inTokens": 1294296, "outTokens": 262175, "tokens": 1556471,
+    "lastAt": "2026-08-03T09:12:44.180Z", "silentDays": 0, "lifetimeRuns": 385,
     "cur":  { "runs": 144, "runsDone": 90, "runsFailed": 30, "runsHalted": 24, "failures": 42,
               "activeMs": 36360000, "interruptions": 111, "inTokens": 1160000, "outTokens": 242806, "tokens": 1402806 },
-    "prev": { "runs": 83, "…": "同 cur 的字段集" } }
+    "prev": { "runs": 83, "…": "同 cur 的字段集" } },
+  // 沉默行：区间指标全 0，但带 lastAt/silentDays/lifetimeRuns，且照样带 cur/prev
+  { "blueprintId": "legacy-deploy", "runs": 0, "…": "其余区间指标均为 0",
+    "lastAt": "2026-04-23T16:58:42.572Z", "silentDays": 102, "lifetimeRuns": 6 }
 ] } }
 ```
 - `runs` = done+failed+halted；`failures` = 归因到本工作流的 `failure_event` 数(带 blueprintId)。
 - `activeMs` 为「E2E 活跃时长」口径(累加 bp_run_end.activeMs)；`interruptions` 为运行中用户中断次数。
+- `lifetimeRuns` = **历史累计** run 数（不受 range 约束），仅用于沉默名单的准入判定。
+
+#### 上次活跃与沉默天数(`lastAt` / `silentDays` / `hiddenSilent`)
+
+- **`lastAt` = 上次实质使用**：只认 `session_start`/`session_end`/`bp_run_end`/`failure_event`，**心跳与 `instance_online` 一律不算**。反例是 `installs.last_seen`——它含心跳，装了挂着不用的人永远显示「5 分钟前」，照那个口径看板会显示全员活跃。取值优先 `client_ts`（事件真实发生时刻，避免 spool 断网补发把活动记成"今天"），仅当 `client_ts > server_ts + 5min`（时钟走快）或不可解析时回落 `server_ts`。
+- **`lastAt` 为 `null`** 有两种可能且**从数据本身分不出来**：① 从未实质使用（只有心跳）；② 是升级到 schema v4 之前的历史行、尚未跑 `npm run backfill`。看板显示中性的「—」，不臆断。
+- **`silentDays`** = `lastAt` 的本地日距 `today` 的天数（今天用过 = 0）；`lastAt` 为 `null` 时为 `null`。它是**全局量**，不随 `from/to` 变——切 90 天不会让一个沉默 40 天的实体变成沉默 0 天。
+- **沉默名单准入线 `silentMinLifetimeRuns`（= 3）**：只有区间内零活动的工作流才需要过线，历史累计 run 数低于它的不列出，个数计入 `hiddenSilent`。理由：`blueprintId` 是用户可控且只增不减的（蚕丛支持自建/复制蓝图），历史累计几百上千个 id 里绝大多数是「建了跑一次就废」的实验品，不设线会把真正值得警惕的「曾经在用、现在不用了」淹掉。**用户侧不设此线**（`user@host` 来自真实机器，基数受人数约束）——这是有意的不对称。
 
 #### 环比对比窗(`compare` / `cur` / `prev`)
 上面两个端点的**行内总量仍是 `from~to` 全区间(含当日)**——那是实时感，不动。环比另起两个窗口，**两端都截至昨日**、各取与 `from~to` 等长的完整自然日：
@@ -235,6 +259,30 @@ GET /healthz → 200 { "ok": true }
 ```
 - 两个 series 端点都走 `daily_*` 聚合表，**不读 events**，因此不受 90 天保留窗约束。
 - 索引口径：`daily_blueprint` 主键 `(day, blueprint_id)` 以 day 先导，按 id 过滤是范围内小规模扫；`daily_user` 按 `user/host` 过滤要扫范围内全部行（90 天千人 ≈ 9 万行、十毫秒级）。这是**按需下钻**而非首屏，故未为其新增索引。
+
+### `GET /v1/stats/hours?blueprintId&days`
+使用时段分布（作息）：24×7 热力图数据。`blueprintId` 缺省/空 = **全局**；`days` 默认 30、上限 400。只返回非空格子，补零交前端。
+```jsonc
+{ "ok": true, "data": {
+  "blueprintId": "", "days": 30, "from": "2026-07-05", "to": "2026-08-03",
+  "firstDay": "2026-07-05",     // 窗口内实际有数据的最早一天（null = 窗口内无数据）
+  "coveredDays": 30,            // 实到自然日数，≠ days（早期可能无数据或已过 events 保留期）
+  "droppedClockSkew": 12,       // 因时钟异常/无 ts 被剔出时段统计的累计事件数（UI 必须显示）
+  "cells": [ { "weekday": 1, "hour": 10, "events": 42, "sessions": 12, "runs": 18 } ]
+} }
+```
+- `weekday`：**0 = 周日**、1 = 周一 …… 6 = 周六。
+- **窗口固定，不跟随顶栏 `from`/`to`**（本端点也不接受 `from`/`to`）。理由：7 天档下每个「周几×小时」格子只有 1 个样本，那不是作息规律是随机噪声，而热力图看起来很有信息量——比没有图更糟。顶栏 range 的语义是「统计区间」，作息是相对稳定的结构量，两者本就不该同步。
+- `blueprintId` 超 256 字符 → `400 bad id`。
+
+#### 时段分布的两条口径警告（务必读）
+
+1. **`daily_hour` 与 `daily_*` 是两套时间口径，两表永不可 join / 对账。** 时段表的 `day` 与 `hour` **同源于 `client_ts`**（事件真实发生时刻，转服务器本地时区）；其余聚合表的 `day` 是**服务器接收时刻**固化的。取 `client_ts` 是因为客户端有 spool 断网缓冲——用接收时刻分桶会把断网期间的活动全堆到重连那一刻，凭空造出假高峰。`day` 也必须同源，否则「昨天 23:00 发生、今早补发」的事件会记成 `day=今天/hour=23`（今天 23 点还没到），24×7 图里跨午夜的事件还会落进错格子。
+2. **全局行 ≠ 各工作流行之和。** 会话类事件（`session_start`/`session_end`）没有 `blueprintId`，只进全局行；工作流行只含 `bp_run_end`/`failure_event`。拿这两个数对账一定对不上，这是设计使然。
+
+不合格事件（`client_ts` 缺失/不可解析，或超过 `server_ts + 5min` 的时钟走快）**直接丢弃**并计入 `droppedClockSkew`——不像 recency 那样回落 `server_ts`：recency 有个值比没有强，而时段分布里一个错误的小时会直接污染分布形状。
+
+> ⚠️ 时段口径依赖部署机时区，**TZ 一旦定下不可改**——改了之后重跑回填会与增量积累的行对不上，且从数据本身看不出来。见 [DEPLOYMENT §4.1](./DEPLOYMENT.md)。
 
 ### `GET /v1/stats/realtime?window=`
 实时活动：近 `window` 分钟(默认/上限 1440 = 24h)**按分钟直查 events**，无新增存储。只返回**非空分钟桶**，缺失分钟补零交前端。
@@ -272,12 +320,13 @@ GET /healthz → 200 { "ok": true }
 
 | 端点 | 参数 | 列 |
 |---|---|---|
-| `GET /v1/export/blueprints` | `from`/`to`（同 stats，缺省近 30 天） | 工作流·运行·成功·失败run·中止·失败事件·活跃时长ms·中断·输入Token·输出Token·Token合计 |
-| `GET /v1/export/users` | `from`/`to` | 用户·主机·会话数·run数·失败数·活跃时长ms·输入Token·输出Token·Token合计 |
+| `GET /v1/export/blueprints` | `from`/`to`（同 stats，缺省近 30 天） | 工作流·运行·成功·失败run·中止·失败事件·活跃时长ms·中断·输入Token·输出Token·Token合计·**上次活跃·沉默天数** |
+| `GET /v1/export/users` | `from`/`to` | 用户·主机·会话数·run数·失败数·活跃时长ms·输入Token·输出Token·Token合计·**上次活跃·沉默天数** |
 | `GET /v1/export/failures` | `from`/`to` | 时间·用户·主机·工作流·来源·类型·原因·版本·事件ID |
 | `GET /v1/export/installs` | 无（全量快照） | 用户·主机·版本·平台·渠道·活动会话·最后在线·首次上线·实例ID |
 
 - **`failures` 同时含装失败**：`update_apply{ok:false}` 与 `failure_event` 同列，字段口径必须与看板「最近失败」表一致——`来源=auto-update`、`类型=update:<reason>`、`原因=<from> → <to>（第 N 次尝试）`。两端各写一份（浏览器 ESM / Node CJS 无共享层），**改一处必须同步改 `public/js/features/failures.js::renderRecent`**，否则同一批数据导出与看板对不上。
+- **`blueprints`/`users` 含沉默实体**：两者与看板走**同一段装配代码**（`lib/stats.js::assembleBlueprints` / `assembleUsersAll`），因此区间内零活动的沉默工作流（过准入线的）与沉默用户会一并导出，准入线挡掉的同样不导出——「导出与看板同口径」这条纪律靠共享装配兜住，不靠两份实现自觉对齐。`上次活跃`/`沉默天数` 无记录时**留空**（不是 0——0 的含义是「今天用过」）。
 - **安全上限**：`failures` 单次最多 10 万行，命中即 `[export]` 日志提示可能截断（缩小 `from`/`to` 重导）。其余端点读 `daily_*` 小表，无上限。
 - 范围非法（非 `YYYY-MM-DD`、倒置、跨度 >400 天）→ `400 {ok:false,error:'bad range'}`（JSON，非 CSV）。
 

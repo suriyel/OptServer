@@ -208,7 +208,7 @@ CREATE TABLE daily_user (
 ```
 
 - `day` 按服务器本地日（Asia/Shanghai）切分，存 `YYYY-MM-DD`——遵循「ISO 存储、本地展示」既有约定，聚合边界与使用者作息一致。
-- **归日**以 `server_ts` 为权威（客户端时钟不可信）。注意这条只管 `day` 列：规划中的使用时段分布会**改用 `client_ts` 做小时归属**（spool 断网补发会把活动全堆到重连时刻，用接收时刻分桶必造假高峰），届时库里会有两套时间口径且**不可互相对账**——设计与取舍见 [docs/TIME-DIMENSION-PLAN.md](./docs/TIME-DIMENSION-PLAN.md) P3。
+- **归日**以 `server_ts` 为权威（客户端时钟不可信）。注意这条只管 `day` 列：已上线的使用时段分布（`daily_hour`）**改用 `client_ts` 做日+小时归属**（spool 断网补发会把活动全堆到重连时刻，用接收时刻分桶必造假高峰），故库里现有两套时间口径且**不可互相对账**——设计与取舍见 [docs/TIME-DIMENSION-PLAN.md](./docs/TIME-DIMENSION-PLAN.md) P3。
 - 天级总量（DAU、总会话等）从 daily_user 现查（千人级 × 一年 ≈ 25 万行，group by day 毫秒级），不单设 totals 表。
 
 ### 7.3 API

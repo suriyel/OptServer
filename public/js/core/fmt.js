@@ -49,6 +49,28 @@ export function fmtPct(v) {
 }
 
 /**
+ * 「上次活跃」列：ISO → 相对时间；无记录显示 —。
+ *
+ * 无记录有两种可能且**从数据本身分不出来**：① 该用户只有心跳、从未实质使用；
+ * ② 是升级到 v4 之前的历史行、还没跑 `npm run backfill`。所以只显示中性的 —，
+ * 由表头 title 说明这两种可能，不臆断成「从未使用」。
+ * @param {string|null} iso
+ */
+export function fmtLastAt(iso) {
+  return iso ? fmtAgo(iso) : '—';
+}
+
+/**
+ * 「沉默天数」列。silentDays 为 null（无记录）显示 —；0 显示「今天」。
+ * @param {number|null} days @param {number} warnOver 超过此值给 ⚠（调用方传 2×range）
+ */
+export function fmtSilent(days, warnOver) {
+  if (days == null) return { text: '—', cls: '' };
+  if (days === 0) return { text: '今天', cls: '' };
+  return { text: days + ' 天', cls: days > warnOver ? 'silent-warn' : '' };
+}
+
+/**
  * 环比（本期 vs 上期）→ { text, cls }。
  *
  * 两期任一 < 10 时改显**绝对差**而非百分比：长尾工作流从 1 涨到 3 就是 +200%，

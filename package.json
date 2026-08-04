@@ -11,6 +11,7 @@
     "test": "node --test \"__tests__/*.test.js\"",
     "bench": "node scripts/bench.js",
     "migrate": "node scripts/migrate.js",
+    "backfill": "node scripts/backfill.js",
     "vendor": "node scripts/vendor-assets.js"
   },
   "dependencies": {

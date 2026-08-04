@@ -7,9 +7,9 @@
 // 对比窗由服务器给（compare），两端都不含当日，见 lib/stats.js compareWindows。
 
 import { getStats, makeGuard } from '../core/api.js';
-import { escapeHtml, fmtInt, fmtDuration, fmtDelta } from '../core/fmt.js';
-import { rangeParams, todayLocal } from '../core/range.js';
-import { makeChart, stackedBar, rankedBar, timeBars, EC } from '../core/echarts.js';
+import { escapeHtml, fmtInt, fmtDuration, fmtDelta, fmtLastAt, fmtSilent } from '../core/fmt.js';
+import { rangeParams, todayLocal, rangeDays } from '../core/range.js';
+import { makeChart, stackedBar, rankedBar, timeBars, heatmap, EC } from '../core/echarts.js';
 import { downloadCsv } from '../core/download.js';
 import { cmpGrid, mdLabel, rangeNote } from '../core/detail.js';
 
@@ -21,6 +21,9 @@ const CHART_METRICS = [
   { value: 'interruptions', label: '中断' },
 ];
 
+// noCmp：该列无 cur/prev 对应字段（recency 是不带 range 的全局量），不参与环比列
+const LAST_AT_TITLE = '上次实质使用（会话/run/失败；心跳不算）。「—」= 无记录：'
+  + '可能从未实质使用，也可能是升级前的历史数据尚未跑 npm run backfill';
 const COLUMNS = [
   { key: 'blueprintId', label: '工作流', num: false },
   { key: 'runs', label: '运行', num: true },
@@ -31,6 +34,18 @@ const COLUMNS = [
   { key: 'activeMs', label: '活跃时长', num: true, fmt: fmtDuration },
   { key: 'interruptions', label: '中断', num: true },
   { key: 'tokens', label: 'Token', num: true },
+  { key: 'lastAt', label: '上次活跃', num: false, noCmp: true, title: LAST_AT_TITLE,
+    // ISO 字典序 = 时间序；无记录归 '' 排在最旧那端
+    sortVal: (r) => r.lastAt || '',
+    render: (r) => fmtLastAt(r.lastAt) },
+  { key: 'silentDays', label: '沉默', num: true, noCmp: true,
+    title: '区间内零活动即为沉默；沉默天数超过当前范围的 2 倍时标 ⚠',
+    // 无记录当作「最沉默」排在极端，不能让 null 掉进字符串比较
+    sortVal: (r) => (r.silentDays == null ? Infinity : r.silentDays),
+    render: (r) => {
+      const s = fmtSilent(r.silentDays, rangeDays() * 2);
+      return s.cls ? `<span class="${s.cls}">${s.text} ⚠</span>` : s.text;
+    } },
 ];
 
 // 展开面板的「本期 vs 上期」对比条指标
@@ -49,14 +64,21 @@ const CMP_METRICS = [
 /** @type {any} */ let compare = null;
 /** 服务器回的区间右端；等于今天时末柱不完整，标题上要说明 @type {string|null} */
 let rangeTo = null;
+/** 被准入线挡掉的沉默工作流个数（表底说明，保留可见性） */
+let hiddenSilent = 0;
+let silentMinRuns = 3;
 let chartMetric = 'outcome';
 let sortKey = 'runs';
 let sortDesc = true;
 /** 当前展开的工作流 id（一次只开一个：多实例并存既费内存又让页面跳动） @type {string|null} */
 let expandedKey = null;
 /** @type {any} */ let detailChart = null;
+/** @type {any} */ let detailHeat = null;
+const HOURS_DAYS = 30; // 作息窗口固定 30 天，不跟随顶栏 range（样本量理由见 lib/stats.js）
 /** 逐日序列按 id 缓存；range 变了在 refresh 里整体作废 @type {Map<string, any>} */
 const seriesCache = new Map();
+/** 作息按 id 缓存。窗口固定 30 天、与顶栏 range 无关，故 range 变化**不作废**它 @type {Map<string, any>} */
+const hoursCache = new Map();
 /** 列表请求的代际守卫（切档位/轮询并发时丢弃先发后至的旧快照） */
 const listGuard = makeGuard();
 
@@ -115,6 +137,8 @@ export async function refresh() {
     rows = d.blueprints;
     compare = d.compare || null;
     rangeTo = d.to;
+    hiddenSilent = d.hiddenSilent || 0;
+    silentMinRuns = d.silentMinLifetimeRuns || 3;
     seriesCache.clear(); // range 可能变了，旧序列作废
     if (expandedKey && !rows.some((r) => r.blueprintId === expandedKey)) expandedKey = null;
     renderChart();
@@ -126,8 +150,8 @@ export async function refresh() {
 }
 
 function renderChart() {
-  // 服务器按 runs 降序返回；取前 N，图表内反转使最大值在顶部
-  const top = rows.slice(0, CHART_TOP);
+  // 服务器按 runs 降序返回、尾部接沉默行；沉默行全零，画进图里只是一排空条，先滤掉
+  const top = rows.filter((r) => r.runs > 0).slice(0, CHART_TOP);
   const cats = top.map((r) => r.blueprintId);
   if (!cats.length) { chart.set({ title: { text: '范围内无工作流运行', left: 'center', top: 'middle',
     textStyle: { color: '#565d69', fontFamily: '"IBM Plex Mono",monospace', fontSize: 13 } } }); return; }
@@ -150,25 +174,29 @@ function renderChart() {
 
 function rangeEndsToday() { return rangeTo === todayLocal(); }
 
-// 环比列只在「排序列是数值列」且服务器给了对比窗时出现（按工作流名排序时无环比可言）
+// 环比列只在「排序列是数值列且有 cur/prev 对应字段」且服务器给了对比窗时出现。
+// recency 两列（lastAt/silentDays）是不带 range 的全局量，没有"上期值"可言，故标 noCmp。
 function cmpColumn() {
   if (!compare) return null;
-  return COLUMNS.find((c) => c.key === sortKey && c.num) || null;
+  return COLUMNS.find((c) => c.key === sortKey && c.num && !c.noCmp) || null;
 }
 
 function renderTable() {
   disposeDetail();
+  const sortCol = COLUMNS.find((c) => c.key === sortKey);
+  const valOf = (r) => (sortCol && sortCol.sortVal ? sortCol.sortVal(r) : r[sortKey]);
   const sorted = rows.slice().sort((a, b) => {
-    const av = a[sortKey], bv = b[sortKey];
+    const av = valOf(a), bv = valOf(b);
     const cmp = typeof av === 'number' && typeof bv === 'number'
-      ? av - bv : String(av || '').localeCompare(String(bv || ''));
+      ? av - bv : String(av == null ? '' : av).localeCompare(String(bv == null ? '' : bv));
     return sortDesc ? -cmp : cmp;
   });
   const cmpCol = cmpColumn();
   const colCount = COLUMNS.length + (cmpCol ? 1 : 0);
 
   const head = COLUMNS.map((c) => {
-    let h = `<th class="sortable${c.num ? ' num' : ''}" data-key="${c.key}">${c.label}`
+    const title = c.title ? ` title="${escapeHtml(c.title)}"` : '';
+    let h = `<th class="sortable${c.num ? ' num' : ''}" data-key="${c.key}"${title}>${c.label}`
       + (sortKey === c.key ? `<span class="arrow">${sortDesc ? '▼' : '▲'}</span>` : '') + '</th>';
     if (cmpCol && c.key === cmpCol.key) h += '<th class="num" title="本期 vs 上期，两端均不含当日">环比</th>';
     return h;
@@ -177,22 +205,27 @@ function renderTable() {
   const body = sorted.map((r) => {
     const open = expandedKey === r.blueprintId;
     const cells = COLUMNS.map((c) => {
-      let td = c.num
-        ? `<td class="num">${c.fmt ? c.fmt(r[c.key]) : fmtInt(r[c.key])}</td>`
-        : `<td><span class="caret">${open ? '▾' : '▸'}</span>${escapeHtml(r[c.key])}</td>`;
+      let td;
+      if (c.render) td = `<td class="${c.num ? 'num' : ''}">${c.render(r)}</td>`;
+      else if (c.num) td = `<td class="num">${c.fmt ? c.fmt(r[c.key]) : fmtInt(r[c.key])}</td>`;
+      else td = `<td><span class="caret">${open ? '▾' : '▸'}</span>${escapeHtml(r[c.key])}</td>`;
       if (cmpCol && c.key === cmpCol.key) {
         const d = fmtDelta(r.cur ? r.cur[c.key] : 0, r.prev ? r.prev[c.key] : 0, c.fmt);
         td += `<td class="num cmp-td ${d.cls}">${d.text}</td>`;
       }
       return td;
     }).join('');
-    return `<tr class="row-x${open ? ' open' : ''}" data-k="${escapeHtml(r.blueprintId)}">${cells}</tr>`
+    return `<tr class="row-x${open ? ' open' : ''}${r.runs === 0 ? ' row-silent' : ''}" data-k="${escapeHtml(r.blueprintId)}">${cells}</tr>`
       + (open ? detailRow(r, colCount) : '');
   }).join('');
 
+  // 准入线挡掉的那些必须报个数——静默隐藏会让人以为"就这么多工作流"
+  const hiddenNote = hiddenSilent > 0
+    ? `<div class="table-note">已隐藏 ${hiddenSilent} 个区间内零活动且历史累计运行 &lt;${silentMinRuns} 次的工作流（多为建了跑一次就废的实验品）。</div>`
+    : '';
   root.querySelector('#bp-table').innerHTML = sorted.length
-    ? `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>` + rangeNote(compare)
-    : '<div class="empty">范围内无工作流运行</div>';
+    ? `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>` + rangeNote(compare) + hiddenNote
+    : '<div class="empty">范围内无工作流运行</div>' + hiddenNote;
   if (expandedKey) mountDetail();
 }
 
@@ -203,12 +236,15 @@ function detailRow(r, colCount) {
       <div class="detail-title">${escapeHtml(r.blueprintId)} · 逐日运行终态${
         partial ? '<span class="detail-note">末柱为当日，数据不完整</span>' : ''}</div>
       <div class="echart detail-chart" id="bp-detail-chart"></div>
+      <div class="detail-title">作息分布<span class="detail-note">固定近 ${HOURS_DAYS} 天，不受顶栏范围影响</span></div>
+      <div class="echart echart-heat" id="bp-detail-heat"></div>
       ${compare ? '<div class="detail-title">本期 vs 上期</div>' + cmpGrid(r.cur, r.prev, CMP_METRICS) : ''}
     </div></td></tr>`;
 }
 
 function disposeDetail() {
   if (detailChart) { detailChart.dispose(); detailChart = null; }
+  if (detailHeat) { detailHeat.dispose(); detailHeat = null; }
 }
 
 function loadingOption(text, color) {
@@ -244,5 +280,28 @@ async function mountDetail() {
     }));
   } catch (e) {
     if (detailChart === inst) inst.set(loadingOption('序列加载失败：' + /** @type {Error} */ (e).message, '#e8615f'));
+  }
+  mountDetailHeat(key);
+}
+
+// 作息热力图：与日曲线各自独立请求（窗口不同——日曲线跟 range，热力图固定 30 天），
+// 故也各自独立缓存与守卫，一个失败不拖累另一个。
+async function mountDetailHeat(key) {
+  const el = /** @type {HTMLElement} */ (root.querySelector('#bp-detail-heat'));
+  if (!el) return;
+  const inst = makeChart(el);
+  detailHeat = inst;
+  inst.set(loadingOption('加载中…'));
+  try {
+    let d = hoursCache.get(key);
+    if (!d) {
+      d = await getStats('/stats/hours', { blueprintId: key, days: String(HOURS_DAYS) });
+      hoursCache.set(key, d);
+    }
+    if (expandedKey !== key || detailHeat !== inst) return;
+    if (!d.cells.length) { inst.set(loadingOption(`近 ${HOURS_DAYS} 天无运行记录`)); return; }
+    inst.set(heatmap({ cells: d.cells.map((c) => ({ ...c, value: c.events })), valueFmt: fmtInt }));
+  } catch (e) {
+    if (detailHeat === inst) inst.set(loadingOption('作息加载失败：' + /** @type {Error} */ (e).message, '#e8615f'));
   }
 }

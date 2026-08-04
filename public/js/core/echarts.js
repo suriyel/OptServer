@@ -115,6 +115,59 @@ export function stackedBar(d) {
   });
 }
 
+// 周一置顶（周日排最后）：工作日连成一片，周末在底部自成一块，比 0=周日 起头好读
+const WEEKDAY_ROWS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+const weekdayRow = (wd) => (wd + 6) % 7; // 服务端 0=周日 → 行号
+
+/**
+ * 24×7 作息热力图。cells: [{ weekday(0=周日), hour(0-23), value }]
+ * 空格子不传即可——这里会补 0，让"没人用的时段"显示为底色而不是空洞。
+ * @param {{ cells:any[], valueFmt?:(v:number)=>string }} d
+ */
+export function heatmap(d) {
+  const byKey = new Map(d.cells.map((c) => [weekdayRow(c.weekday) * 24 + c.hour, c.value]));
+  const data = [];
+  let max = 0;
+  for (let row = 0; row < 7; row++) {
+    for (let h = 0; h < 24; h++) {
+      const v = byKey.get(row * 24 + h) || 0;
+      if (v > max) max = v;
+      data.push([h, row, v]);
+    }
+  }
+  const fmt = d.valueFmt || ((v) => String(v));
+  return Object.assign(baseOption(), {
+    tooltip: Object.assign(baseOption().tooltip, {
+      trigger: 'item', axisPointer: { type: 'none' },
+      formatter: (p) => `${WEEKDAY_ROWS[p.value[1]]} ${String(p.value[0]).padStart(2, '0')}:00`
+        + `<br/><b style="color:${EC.amber}">${fmt(p.value[2])}</b>`,
+    }),
+    grid: { left: 8, right: 16, top: 8, bottom: 46, containLabel: true },
+    xAxis: Object.assign({}, CAT_AXIS, {
+      data: Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0')),
+      splitArea: { show: false },
+      axisLabel: { color: DIM, fontFamily: MONO, fontSize: 10, interval: 1 },
+    }),
+    yAxis: Object.assign({}, CAT_AXIS, { data: WEEKDAY_ROWS, inverse: true,
+      axisLabel: { color: DIM, fontFamily: MONO, fontSize: 11 } }),
+    // max=0（窗口内一条数据都没有）时给个 1，避免 visualMap 退化成 NaN 区间
+    visualMap: {
+      min: 0, max: max || 1, calculable: false, orient: 'horizontal', left: 'center', bottom: 4,
+      itemWidth: 11, itemHeight: 90,
+      textStyle: { color: DIM, fontFamily: MONO, fontSize: 10 },
+      // 从"接近底色"渐到 amber：零值几乎隐形，热点自己跳出来
+      inRange: { color: ['#161a21', '#2c2f2c', '#6b5a24', '#b8862a', '#f0a830'] },
+    },
+    series: [{
+      type: 'heatmap', data,
+      itemStyle: { borderColor: '#0c0e12', borderWidth: 1 },
+      emphasis: { itemStyle: { borderColor: EC.amber, borderWidth: 1 } },
+      progressive: 0,
+    }],
+    animationDuration: 400,
+  });
+}
+
 // x=时间标签的公共骨架（趋势日视图与实时视图共用）。zoom 时挂 dataZoom（内滚+底部滑条）。
 function timeBase(categories, zoom) {
   const o = Object.assign(baseOption(), {

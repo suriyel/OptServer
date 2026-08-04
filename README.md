@@ -1,6 +1,6 @@
 # cancong-ops
 
-蚕丛 harness 的运营统计服务器：接收各实例上报的使用事件（`POST /v1/events`），SQLite 存储 + 增量聚合，提供查询聚合 API（`GET /v1/stats/*`）与自建看板（概览/趋势/工作流/用户/失败/实例/版本发布 七页）。兼任客户端的**应用自动更新发布面**（`/v1/update/*`：管理员推包发版，客户端免鉴权查版下载）。
+蚕丛 harness 的运营统计服务器：接收各实例上报的使用事件（`POST /v1/events`），SQLite 存储 + 增量聚合，提供查询聚合 API（`GET /v1/stats/*`）与自建看板（概览/趋势/工作流/用户/失败/实例/版本发布 七页；趋势页含「按日期 / 实时 / 作息」三种时间尺度）。兼任客户端的**应用自动更新发布面**（`/v1/update/*`：管理员推包发版，客户端免鉴权查版下载）。
 
 契约与设计依据：[OPS-TELEMETRY-DESIGN.md](./OPS-TELEMETRY-DESIGN.md)——§4 事件信封（双端唯一契约）、§7.3 查询 API（看板唯一契约）。
 
@@ -29,7 +29,7 @@ npm start                 # 默认 http://localhost:5900
 curl -s -X POST http://localhost:5900/v1/events -H 'content-type: application/json' -d '{
   "events": [{
     "schemaVersion": 1, "eventId": "demo-1", "type": "session_start",
-    "ts": "2026-07-02T09:30:00+08:00", "installId": "demo-install",
+    "ts": "2026-07-02T01:30:00.000Z", "installId": "demo-install",
     "user": "zhangsan", "host": "DESKTOP-X", "platform": "win32",
     "appVersion": "1.4.0", "channel": "packaged", "bootId": "b1",
     "payload": { "tool": "claude", "cwdHash": "abcdef012345" }
@@ -55,11 +55,12 @@ curl -s -X POST http://localhost:5900/v1/events -H 'content-type: application/js
 
 `day` 归日在 ingest 写入时按**进程本地时区**固化为列，此后聚合、清理、查询只认该列。部署机必须钉死时区（systemd 单元里 `Environment=TZ=Asia/Shanghai`）；**上线后不要改 TZ**，否则新旧数据的日界口径不一致。
 
-> ⚠️ **改 TZ 的破坏性将随「作息维度」上线而升级**（规划中的时段分布，见 [docs/TIME-DIMENSION-PLAN.md](./docs/TIME-DIMENSION-PLAN.md)）。差别在于：`day` 是**写入时固化**的，改 TZ 只影响此后的新数据，历史行原样不动；而时段聚合的**回填是用运行时的当前 TZ 现算**的。于是改完 TZ 再重跑一次回填，会得到与增量积累结果**不同**的值——同一张表里混着两套小时口径，且从数据本身看不出来。结论不变：**TZ 一旦定下就不要改**；真要改，必须停服 → 改 TZ → 清空并整表重跑时段聚合，不能只补跑增量。
+> ⚠️ **「作息维度」上线后，改 TZ 的破坏性更高**（时段分布，见 [docs/TIME-DIMENSION-PLAN.md](./docs/TIME-DIMENSION-PLAN.md)）。差别在于：`day` 是**写入时固化**的，改 TZ 只影响此后的新数据，历史行原样不动；而时段聚合的**回填是用运行时的当前 TZ 现算**的。于是改完 TZ 再重跑一次回填，会得到与增量积累结果**不同**的值——同一张表里混着两套小时口径，且从数据本身看不出来。结论不变：**TZ 一旦定下就不要改**；真要改，必须停服 → 改 TZ → 清空并整表重跑时段聚合，不能只补跑增量。
 
 ## 数据与运维
 
-- **存储**：`installs`（实例注册，心跳只 upsert 此表）、`events`（原始事件，滚动保留）、`daily_user` / `daily_tool` / `daily_fail`（日聚合，永久）、`hb_seen`（心跳幂等，7 天）、`meta`（job 记账）。SQL 全部收敛在 `lib/db.js`（PostgreSQL 迁移只动此文件；触发条件见设计文档 §8.4：实例 >5000 / 需 HA / 库 >20GB）。
+- **「上次活跃」口径**：`daily_user.last_at` / `daily_blueprint.last_at` 只记**实质使用**（会话/run/失败），**心跳与 `instance_online` 不算**——`installs.last_seen` 含心跳，装了挂着不用的人永远显示「5 分钟前」，拿它当活跃度会让看板显示全员活跃。取 `client_ts`（事件真实发生时刻，避免断网补发把活动记成"今天"），仅时钟走快超 5 分钟或不可解析时回落 `server_ts`。升级到 schema v4 后**跑一次 `npm run backfill`** 补历史（不跑也不影响新数据，只是历史行显示「—」）。
+- **存储**：`installs`（实例注册，心跳只 upsert 此表）、`events`（原始事件，滚动保留）、`daily_user` / `daily_tool` / `daily_fail` / `daily_blueprint` / `daily_hour`（聚合，永久）、`hb_seen`（心跳幂等，7 天）、`meta`（job 记账）。SQL 全部收敛在 `lib/db.js`（PostgreSQL 迁移只动此文件；触发条件见设计文档 §8.4：实例 >5000 / 需 HA / 库 >20GB）。
 - **看板查询走聚合、明细走 events**：DAU/会话/工具/失败分布等全部预聚合到 `daily_*` 小表，读时零扫描 events；只有「最近失败列表」读原始 events。events 上不设 `(type, server_ts)` 索引（无查询按 `server_ts` 过滤），改为 `day` 先导索引 + 两个 partial 覆盖索引（失败率分母、最近失败列表）。这套设计由 `npm run bench` 在 700 万行上验证：全部查询毫秒级（失败按版本从朴素实现的 23 秒降到个位数毫秒）。`daily_fail(day, app_version, kind)` 专为 kinds 分布而设——直接对 events 做 `json_extract(kind)` 跨天分组要走临时 B 树（30 天约 1 秒），预聚合成小表后亚毫秒。
 - **夜间 job**（进程内，本地 3:00，错过自动补跑）：最近 3 天聚合核对补算（heartbeats 列除外——心跳不落 events，不可重算）→ 90 天清理 → `incremental_vacuum` + WAL checkpoint。
 - **备份**：在线执行 `sqlite3 ops.db "VACUUM INTO '/backup/ops-YYYYMMDD.db'"`，或停服后拷全套文件。**WAL 模式下不要只拷 `.db` 主文件**（`-wal` 里可能有未 checkpoint 的数据）。
@@ -72,6 +73,7 @@ curl -s -X POST http://localhost:5900/v1/events -H 'content-type: application/js
 npm test                  # node:test 确定性测试（无外网、无浏览器）
 npm run bench             # 700 万行压测：灌数 → 全量重算 → 逐查询 p50/p95 对照验收线
 npm run migrate -- --db <path>   # 对已有库单独跑 schema 迁移（不启动服务；幂等）
+npm run backfill -- --db <path>  # 回填 recency（last_at）；升级到 v4 后跑一次，幂等可重跑
 npm run vendor            # 升级 echarts/字体后重拷 public/vendor/（vendored 产物提交进 git）
 ```
 
@@ -99,6 +101,7 @@ GET  /v1/stats/users/top?from&to&metric&limit  # 高频用户 Top N（metric 排
 GET  /v1/stats/blueprints?from&to # 各工作流 runs/失败/E2E/中断/token；带环比 cur/prev
 GET  /v1/stats/blueprints/series?id&from&to    # 单工作流逐日序列（详情面板下钻）
 GET  /v1/stats/users/series?user&host&from&to  # 单用户逐日序列（user/host 分开传）
+GET  /v1/stats/hours?blueprintId&days   # 使用时段分布（作息 24×7）；窗口固定，不跟顶栏范围
 GET  /v1/stats/realtime?window=   # 近 24h 按分钟直查 events（实时视图）
 GET  /v1/installs          # 实例明细
 GET  /v1/export/{blueprints,users,failures,installs}?from&to  # CSV 导出（中文表头 + UTF-8 BOM）

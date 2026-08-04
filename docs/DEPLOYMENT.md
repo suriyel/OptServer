@@ -40,7 +40,7 @@ npm start                  # 等价 node server.js，默认 http://localhost:590
 - **上线后不要改 TZ**，否则新旧数据的日界口径不一致，历史聚合会漂移。
 - Windows 开发机本身是 +8，天然一致。
 
-### 4.1 改 TZ 对「作息维度」的额外破坏（规划中，见 [TIME-DIMENSION-PLAN.md](./TIME-DIMENSION-PLAN.md) P3）
+### 4.1 改 TZ 对「作息维度」的额外破坏
 
 `day` 与时段聚合对 TZ 的敏感方式**不同**，这是最容易踩的地方：
 
@@ -93,9 +93,23 @@ systemctl stop cancong-ops
 git pull && npm ci --omit=dev
 npm run migrate -- --db /var/lib/cancong-ops/ops.db   # 报告迁移前后 user_version + 耗时；幂等，重复跑安全
 systemctl start cancong-ops
+npm run backfill -- --db /var/lib/cancong-ops/ops.db  # 仅升级到 v4/v5 时需要一次，见下
 ```
 
-脚本不复制任何 DDL——直接调 `lib/db.js` 的 `openDb()`（仓库里迁移的唯一真源），不会与 `MIGRATIONS` 数组漂移。库不存在时**报错退出而非静默造空库**（那只意味着 `--db` 打错了）。当前最新版本 **v3**（v3 只加 `ix_update_recent` 索引，不加表；千万级 events 上建索引约数十秒）。
+脚本不复制任何 DDL——直接调 `lib/db.js` 的 `openDb()`（仓库里迁移的唯一真源），不会与 `MIGRATIONS` 数组漂移。库不存在时**报错退出而非静默造空库**（那只意味着 `--db` 打错了）。当前最新版本 **v5**（v3 加 `ix_update_recent` 索引；v4 加两条 `ALTER TABLE ... ADD COLUMN last_at TEXT` + `ix_daily_user_recency`——可空、无 DEFAULT、无约束的 `ADD COLUMN` 在 SQLite 是**纯元数据操作**，不重写表、O(1)，几百万行也是毫秒级；v5 只 `CREATE TABLE daily_hour`，建空表同样是毫秒级）。
+
+### 升级到 v4 / v5 后要跑一次回填
+
+`npm run backfill` 一次性回填两样东西：`last_at`（「上次实质使用」，v4）与 `daily_hour`（使用时段分布，v5）。要点：
+
+- **与增量互不依赖**：不跑也不影响新数据——ingest 从升级那一刻起就正常写 `last_at`，只是历史行留空、看板显示「—」。所以这一步**可延后、可中止、可重跑**。
+- **不塞进迁移是刻意的**：迁移随进程启动跑且整段在一个事务里，回填要扫全量 `events`（生产可达 700 万行），塞进去会把启动阻塞到 systemd 的 `TimeoutStartSec`。
+- **可在线跑**：按天分事务（一天约几千行写），锁持有百毫秒级，与 ingest 争锁由 `busy_timeout=5000` 兜底；真被卡住也不丢数据（客户端 fail-open + spool 补发）。停服跑最干净但非必须。
+- **幂等**：逐日「从 events 重算后覆盖」，跑两遍结果逐位相同，中断后直接重跑。
+- **覆盖范围**：`events` 保留窗内（默认 90 天）精确到秒；更早的只能用当日 `day` 兜底成**日精度**（`12:00Z` 占位，在 ±12 时区内都仍属同一本地日）。
+- **收尾会报「仍为空 N 行」，这不是失败**：纯心跳日的 `daily_user` 行本就没有实质使用，`last_at` 为空是正确语义（=「装了但当天没用」）。
+- **时段分布（v5）没有日精度兜底**：小时信息只存在于 `events.client_ts` 里，`events` 一过保留期就**物理不可重建**——比 `events` 更早的日子永远没有作息数据，看板会标注实到起始日。这与 `last_at` 不同（后者还能用当日 `day` 兜底成日精度）。
+- **改过 TZ 就不能只补跑增量**：时段回填按运行时 TZ 现算，与之前增量积累的行会对不上。见 §4.1。
 
 ## 6. 日志
 
