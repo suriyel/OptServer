@@ -49,7 +49,8 @@ curl -s -X POST http://localhost:5900/v1/events -H 'content-type: application/js
 | `OPS_ADMIN_PASSWORD` | `admin123` | 预置管理员初始密码；用默认值时启动打印告警，请尽快改 |
 | `OPS_SESSION_DAYS` | `7` | 登录会话有效期天数 |
 | `OPS_SECURE_COOKIE` | 关 | 设为 `1` 时会话 Cookie 带 `Secure`（HTTPS 部署用） |
-| `OPS_RELEASES_DIR` | `./releases` | 应用更新发布区目录（磁盘规划见下，约 1.2GB） |
+| `OPS_RELEASES_DIR` | `./releases` | 应用更新发布区目录（磁盘规划见下，约 1.2GB；含派生 tar.gz 后约 ×1.9） |
+| `OPS_7Z_BIN` | 自动探测 | 7z 二进制路径（发布时从便携 exe 派生 tar.gz 解压道用）。探测链：本变量 → `tools/7z/`（win `7zr.exe` / linux `7zz`）→ PATH。**Linux 部署机装 `p7zip-full` 或设本变量**；解析不到时派生失败但**不阻断发布**（manifest 无 archive → 全员走老的 exe 执行路，`[update] archive 派生失败` 日志与发布页可见） |
 
 ## 时区（重要）
 
@@ -64,7 +65,7 @@ curl -s -X POST http://localhost:5900/v1/events -H 'content-type: application/js
 - **看板查询走聚合、明细走 events**：DAU/会话/工具/失败分布等全部预聚合到 `daily_*` 小表，读时零扫描 events；只有「最近失败列表」读原始 events。events 上不设 `(type, server_ts)` 索引（无查询按 `server_ts` 过滤），改为 `day` 先导索引 + 两个 partial 覆盖索引（失败率分母、最近失败列表）。这套设计由 `npm run bench` 在 700 万行上验证：全部查询毫秒级（失败按版本从朴素实现的 23 秒降到个位数毫秒）。`daily_fail(day, app_version, kind)` 专为 kinds 分布而设——直接对 events 做 `json_extract(kind)` 跨天分组要走临时 B 树（30 天约 1 秒），预聚合成小表后亚毫秒。
 - **夜间 job**（进程内，本地 3:00，错过自动补跑）：最近 3 天聚合核对补算（heartbeats 列除外——心跳不落 events，不可重算）→ 90 天清理 → `incremental_vacuum` + WAL checkpoint。
 - **备份**：在线执行 `sqlite3 ops.db "VACUUM INTO '/backup/ops-YYYYMMDD.db'"`，或停服后拷全套文件。**WAL 模式下不要只拷 `.db` 主文件**（`-wal` 里可能有未 checkpoint 的数据）。
-- **应用更新发布区**（`releases/`，`OPS_RELEASES_DIR` 可改）：`staging/`（草稿）+ `published/`（保留最近 3 个版本，约 3 × 370MB ≈ **1.2GB**，部署盘要留出）+ `index.json`（发布清单单一真源，救急可直接 `cat`/手改）。备份只需 `index.json` + `published/`（staging 是中间态、可重传）；包文件本体在 GitHub Release / 构建机各有一份，丢了可重传再发布。
+- **应用更新发布区**（`releases/`，`OPS_RELEASES_DIR` 可改）：`staging/`（草稿）+ `published/`（保留最近 3 个版本；2026-08-07 起 publish 会**从 exe 派生 tar.gz 解压道**（`lib/archive-derive.js`，需 7z 见上表 `OPS_7Z_BIN`），每版从 2 个文件变 4 个，约 3 × 700MB ≈ **2.1GB**，部署盘要留出）+ `index.json`（发布清单单一真源，救急可直接 `cat`/手改）。备份只需 `index.json` + `published/`（staging 是中间态、可重传）；包文件本体在 GitHub Release / 构建机各有一份，丢了可重传再发布。
 - **部署**（内网 Linux）：`npm ci --omit=dev`（better-sqlite3 有 linux-x64 glibc 预编译；musl/无网环境需 `build-essential + python3` 兜底编译）→ `deploy/cancong-ops.service` 装入 systemd。
 
 ## 开发
