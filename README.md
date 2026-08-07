@@ -50,7 +50,11 @@ curl -s -X POST http://localhost:5900/v1/events -H 'content-type: application/js
 | `OPS_SESSION_DAYS` | `7` | 登录会话有效期天数 |
 | `OPS_SECURE_COOKIE` | 关 | 设为 `1` 时会话 Cookie 带 `Secure`（HTTPS 部署用） |
 | `OPS_RELEASES_DIR` | `./releases` | 应用更新发布区目录（磁盘规划见下，约 1.2GB；含派生 tar.gz 后约 ×1.9） |
-| `OPS_7Z_BIN` | 自动探测 | 7z 二进制路径（发布时从便携 exe 派生 tar.gz 解压道用）。探测链：本变量 → `tools/7z/`（win `7zr.exe` / linux `7zz`）→ PATH。**Linux 部署机装 `p7zip-full` 或设本变量**；解析不到时派生失败但**不阻断发布**（manifest 无 archive → 全员走老的 exe 执行路，`[update] archive 派生失败` 日志与发布页可见） |
+| `OPS_7Z_BIN` | 自动探测 | 7z 二进制路径（发布时从便携 exe 派生 tar.gz 解压道用）。探测链：本变量 → `tools/7z/`（win `7zr.exe` / linux `7zz`）→ PATH。**Linux 部署机装 `p7zip-full` 或设本变量**；解析不到时派生失败但**不阻断发布**（manifest 无 archive → `[update] archive 派生失败` 日志与发布页可见；⚠ 新客户端对无 archive 的版本会拒绝升级并报 `feed_no_archive`，务必把 7z 配起来） |
+
+**启动补派生（backfill）**：服务启动时自动检查当前已发布版本，缺 tar.gz 的变体就地从 exe
+补派生并回写 manifest（日志 `[update] archive 补派生 …`）。旧代码发布的 exe-only 版本
+**部署新代码 + 7z + 重启即自愈**，不需要下架重发布；已有 archive 时零成本跳过（幂等）。
 
 ## 时区（重要）
 

@@ -14,7 +14,10 @@ const path = require('path');
 const crypto = require('crypto');
 const { execSync, spawnSync } = require('child_process');
 
-const { makeApp, postJson, getJson } = require('./helpers');
+const express = require('express');
+
+const { makeApp, postJson, getJson, listenApp } = require('./helpers');
+const { createUpdateRouter } = require('../lib/update');
 
 const SEVEN_ZIP = process.env.OPS_7Z_BIN
   || ['D:/03PyDemo/TechDemos/tools/7z/7zr.exe', path.join(__dirname, '..', 'tools', '7z', process.platform === 'win32' ? '7zr.exe' : '7zz')]
@@ -114,6 +117,56 @@ test('派生成功：manifest 带 archive、下载路由放行、tar.gz 能被�
   const drafts = await fetch(baseUrl + '/v1/update/drafts', { headers: { authorization: 'Bearer ' + token } });
   const dj = await drafts.json();
   assert.deepStrictEqual(dj.data.published.archives, { slim: true, 'with-linux': true });
+});
+
+test('启动补派生 backfill：exe-only 旧 manifest 部署新代码重启即自愈（免重发布）+ 幂等 + 空库 no-op', { skip: SKIP_7Z }, async (t) => {
+  process.env.OPS_7Z_BIN = SEVEN_ZIP;
+  const ROOT = tmp();
+  const exe = makeSfxLikeFixture();
+  const pubDir = path.join(ROOT, 'published', '0.0.9');
+  fs.mkdirSync(pubDir, { recursive: true });
+  const packages = {};
+  for (const [va, file] of [['slim', 'cancong-portable-0.0.9.exe'], ['with-linux', 'cancong-portable-0.0.9-with-linux.exe']]) {
+    fs.writeFileSync(path.join(pubDir, file), exe);
+    packages[va] = { file, size: exe.length, sha256: sha256(exe) }; // 刻意无 archive——模拟旧代码发布的 manifest
+  }
+  const manifest = { schemaVersion: 1, version: '0.0.9', pubDate: '2026-08-07T00:00:00Z', notes: '', minSupported: '', packages };
+  fs.writeFileSync(path.join(ROOT, 'index.json'), JSON.stringify({ published: manifest, history: [manifest] }, null, 2));
+
+  const r1 = createUpdateRouter({ releasesDir: ROOT });
+  await r1._backfillDone;
+  const idx = JSON.parse(fs.readFileSync(path.join(ROOT, 'index.json'), 'utf8'));
+  for (const [va, gz] of [['slim', 'cancong-portable-0.0.9.tar.gz'], ['with-linux', 'cancong-portable-0.0.9-with-linux.tar.gz']]) {
+    const a = idx.published.packages[va].archive;
+    assert.ok(a, `backfill 后 packages.${va}.archive 在场`);
+    assert.strictEqual(a.file, gz, '归档名走 canonical 规则');
+    assert.ok(a.size > 0 && a.unpackedSize > 0);
+    assert.ok(fs.existsSync(path.join(pubDir, gz)), 'tar.gz 落盘在发布目录（下载路由同目录取件）');
+    assert.ok(idx.history[0].packages[va].archive, 'history 同版本条目一并补齐（保持与 published 一致）');
+  }
+
+  // /latest 出口直接可见——客户端零操作自愈
+  const app = express();
+  app.use('/v1', r1);
+  const { baseUrl } = await listenApp(t, app);
+  const latest = await getJson(baseUrl, '/v1/update/latest');
+  assert.strictEqual(latest.status, 200);
+  assert.ok(latest.json.packages.slim.archive, '/latest 带 archive');
+  const dl = await fetch(`${baseUrl}/v1/update/download/${latest.json.packages.slim.archive.file}`);
+  assert.strictEqual(dl.status, 200, '补派生的 tar.gz 同样过下载路由命中面');
+
+  // 幂等：第二次启动（archive 已在 index）不重复派生——哨兵字节不被覆盖
+  const gzPath = path.join(pubDir, 'cancong-portable-0.0.9.tar.gz');
+  fs.writeFileSync(gzPath, 'SENTINEL');
+  const r2 = createUpdateRouter({ releasesDir: ROOT });
+  await r2._backfillDone;
+  assert.strictEqual(fs.readFileSync(gzPath, 'utf8'), 'SENTINEL', '★ archive 已登记 → 跳过，绝不重复派生');
+
+  // 无 published → 零成本 no-op（连 index.json 都不建）
+  const emptyRoot = tmp();
+  const r3 = createUpdateRouter({ releasesDir: emptyRoot });
+  await r3._backfillDone;
+  assert.ok(!fs.existsSync(path.join(emptyRoot, 'index.json')), '空库不写 index');
 });
 
 test('派生失败（上传物不是 SFX）：发布照常、响应/drafts 留痕、manifest 无 archive', async (t) => {
