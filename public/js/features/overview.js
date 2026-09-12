@@ -55,7 +55,13 @@ function renderCards(ov) {
     + card('今日会话', fmtInt(ov.sessionsToday))
     + card('今日会话时长', fmtDuration(ov.sessionMsToday))
     + card('今日 run / 失败', fmtInt(ov.runsToday) + ' / ' + fmtInt(ov.failuresToday))
-    + card('今日 Token（入/出）', fmtInt(ov.inTokensToday || 0) + ' / ' + fmtInt(ov.outTokensToday || 0));
+    + card('今日 Token（入/出）', fmtInt(ov.inTokensToday || 0) + ' / ' + fmtInt(ov.outTokensToday || 0))
+    // ★ 只在 >0 时出现：健康时不占位、不制造噪声；一旦出现就说明客户端在发这边不认识的
+    //   事件类型（两仓清单漂了）—— 那些事件落了原始表但**不做任何聚合**，此前这个状态
+    //   在界面上完全看不出来。
+    + (ov.unknownTypeEvents > 0
+      ? card('⚠ 未知事件类型（累计）', fmtInt(ov.unknownTypeEvents))
+      : '');
 }
 
 function renderVersions(versions) {

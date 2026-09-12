@@ -104,7 +104,7 @@ test('failure 缺 kind/version：归一为 unknown（daily_fail PK 无 NULL）',
   ]);
 });
 
-test('未知 type（v2 前向兼容）：落 events 原始行，不做任何聚合', (t) => {
+test('未知 type（v2 前向兼容）：落 events 原始行，不做任何聚合，但**计数**', (t) => {
   const { db, dao } = openTempDb(t);
   const r = ingestBatch(dao, [
     makeEvent({ type: 'ticket', payload: { ticketId: 't1', title: 'x' } }),
@@ -115,6 +115,49 @@ test('未知 type（v2 前向兼容）：落 events 原始行，不做任何聚�
   assert.strictEqual(row, undefined); // 无聚合痕迹
   // 但 installs 已注册（未知 type 也刷新 last_seen——实例活着这一事实与 type 无关）
   assert.strictEqual(db.prepare('SELECT COUNT(*) c FROM installs').get().c, 1);
+  // ★★ 计数是这个状态在界面上唯一的痕迹。不计的话「客户端发了这边不认识的类型」
+  //    与「客户端压根没发」完全无法区分 —— 零聚合、零报错、零日志。
+  assert.strictEqual(dao.qUnknownTypes(), 1);
+});
+
+test('★★ 未知 type 计数：只数未知的，且与 hourDropped 同事务落库', (t) => {
+  const { dao } = openTempDb(t);
+  ingestBatch(dao, [
+    makeEvent({ type: 'ticket' }),
+    makeEvent({ type: 'feedback' }),
+    makeEvent({ type: 'session_start', payload: { tool: 'claude' } }),   // 已知，不计
+    makeEvent({ type: 'instance_heartbeat', payload: { liveSessions: 1 } }), // 心跳根本不走这条路
+  ], NOW);
+  assert.strictEqual(dao.qUnknownTypes(), 2);
+  // 累加而不是覆盖（spool 补发会一批一批来）。
+  ingestBatch(dao, [makeEvent({ type: 'ticket' })], NOW);
+  assert.strictEqual(dao.qUnknownTypes(), 3);
+});
+
+test('★★ artifact_review_reject：进白名单 + deltasOf 有 case ⇒ 当日聚合行被建出来', (t) => {
+  const { db, dao } = openTempDb(t);
+  const r = ingestBatch(dao, [
+    makeEvent({ type: 'artifact_review_reject', payload: {
+      aidHash: 'aabbccddeeff', tool: 'claude', kind: 'html', round: 1, turns: 2,
+      reviewer: 'r1', assessment: 'disagree', hadChange: false,
+      rejectKind: 'factualError', quote: '吞吐 1200 QPS', comment: '数字不对',
+      reason: '出处对不上', aiReply: null, promptVer: 'review-v1',
+      genPromptRef: 'tpl/arch@3', bytes: 40, truncated: false,
+    } }),
+  ], NOW);
+  assert.deepStrictEqual(r, { accepted: 1, dup: 0, rejected: 0 });
+  assert.strictEqual(dao.qUnknownTypes(), 0, '★ 没进白名单的话这里会是 1');
+  const row = dailyRow(db, localDay(NOW), 'inst-1');
+  assert.ok(row, '★ deltasOf 里没有 case 的话会走 default:null ⇒ 当日行压根不建出来，'
+    + '症状与「没加白名单」一模一样');
+  assert.strictEqual(row.sessions, 0, '不碰任何聚合列：它是样本不是指标');
+  assert.strictEqual(row.failures, 0, '★ 拒绝一条意见不是「失败」，别混进用户失败指标');
+  assert.strictEqual(row.last_at, null,
+    '★ 不进 RECENCY_TYPES：这条是**评审人在局域网另一头**点的、由 owner 进程代发，'
+    + '记进去会把一台没人用的机器标成今日活跃');
+  // 样本全文在原始表里 —— 这才是这条遥测的产物。
+  const ev = db.prepare("SELECT payload FROM events WHERE type = 'artifact_review_reject'").get();
+  assert.ok(JSON.parse(ev.payload).comment === '数字不对');
 });
 
 test('心跳：不落 events；首发 bump、重发 dup 不变（坑 A）', (t) => {

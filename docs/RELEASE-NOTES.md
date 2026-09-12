@@ -8,6 +8,40 @@
 
 ### 新增能力
 
+**制品审批的「拒绝样本」入库 + 未知事件类型不再静默（两仓同批）**
+
+新增事件类型 `artifact_review_reject`：客户端（蚕丛 harness）的制品审批里，同事否掉一条评审
+意见时，把被圈选的原文、同事的原话、AI 的五字段回复与拒绝归因一并上报，用来改进**生成那份
+文档的 prompt**。这是**第一个「样本类」事件** —— 与既有七类不同，它的价值全在原始
+`events.payload` 里，因此**刻意不加任何聚合列**，只走全 0 bump 保当日行存在。三条要点写进了
+`docs/API.md`：样本随 `events` 表按 `OPS_RETENTION_DAYS`（默认 90）清理（清理不认 type，
+所以「攒半年再分析」这种用法会扑空）；取样本目前只能上服务器 `sqlite3` 手查（`/v1/export/*`
+只导四张聚合表）；截断与脱敏全在客户端做完，服务端不重复截断。
+
+**未知 type 现在会计数并在总览页暴露**（meta 键 `unknown_type_events`，
+`GET /v1/stats/overview` 的 `unknownTypeEvents`，看板**仅在 >0 时**多出一张卡）。
+
+- 动机：未知 type 的前向兼容行为（落原始表、计 accepted、不聚合）本身是对的，但**在界面上
+  完全看不出来**。于是「客户端加了新事件类型而这边 `KNOWN_TYPES` 没跟上」与「客户端压根
+  没发」长得一模一样 —— 零聚合、零报错、零日志。
+- 理由与 `daily_hour` 的时钟异常丢弃计数是同一条，那处注释原话就是**「丢弃要计数并在 UI 上
+  暴露，否则这是静默漏数据」**；这次把同一条规矩补用到 type 上。
+- 零 schema 改动（`meta` 表 v1 就有），`user_version` 不动。
+
+### 维护者要点
+
+- ★★ **加新事件类型要改两处**：`ingest.js` 的 `KNOWN_TYPES` **和** `deltasOf`。
+  后者没有对应 `case` 会走 `default: return null` 而 `continue`，当日聚合行压根不建出来 ——
+  **症状与「压根没加白名单」一模一样**。（`bp_run_start` 是刻意只进白名单不进 `deltasOf` 的，
+  所以不能写成「每个 KNOWN_TYPE 都要有 case」的通则。）
+- `artifact_review_reject` **不进 `RECENCY_TYPES`**：这条事件是评审人在**局域网另一头**点的、
+  由所属人实例代发，算进「实质使用」会把一台没人在用的机器标成今日活跃。
+- 客户端仓（TechDemos）那边有一条**跨仓对拍用例**会真来读 `lib/ingest.js` 的源码比对
+  `KNOWN_TYPES`，并额外钉「`artifact_review_reject` 在 `deltasOf` 里有 case」。
+  改本文件的这两个常量时，那边会判红 —— 那是有意的。
+- `stBumpHourDropped` 更名为 `stBumpCounter`（它本来就是按 key 累加的通用语句，
+  两个计数器共用一条，免得各备一份 prepare 迟早漂）。行为零变化。
+
 **看板时间维度第三期：使用时段分布 / 作息（schema v5 + 回填）**
 
 回答「**大家什么时候在用**」。趋势页新增第三个模式「作息」，工作流详情面板新增 24×7 热力图——三个模式恰好是三个时间尺度：日（趋势）/ 分钟（实时）/ 周×时（结构）。新增 `GET /v1/stats/hours?blueprintId&days`。

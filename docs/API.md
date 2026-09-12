@@ -81,6 +81,7 @@
 | `bp_run_start` | 工作流 run 新建 | `{ blueprintId, runId, tool }` | **只落 events 不聚合**(run 计数以终态为准，避免跨日双计) |
 | `bp_run_end` | 工作流 run 终态 | `{ blueprintId, runId, status, activeMs, haltReason?, interruptions, inputTokens, outputTokens }` | daily_user 按 `status` 落 `runs_*` + `run_active_ms`；**`daily_blueprint` 落 runs/active_ms/interruptions/token(工作流归因)** |
 | `failure_event` | 异常信号 | `{ source, kind, reason, tool, runId?, blueprintId? }` | `daily_user.failures+1`、`daily_fail(day,version,kind)+1`；**带 `blueprintId` 则 `daily_blueprint.failures+1`** |
+| `artifact_review_reject` | 制品审批：一条评审意见被拒 | `{ aidHash, tool, kind, round, turns, reviewer, assessment, hadChange, rejectKind, quote, comment, reason, aiReply{…}, promptVer, genPromptRef, bytes, truncated }` | **只建当日行(计数 0)，不落任何聚合列** —— 见下方「样本类事件」 |
 
 **v0.2.0 新增 payload 字段**（客户端上报；缺失按 0 / 不归因，服务器 graceful）：
 - `session_end.inputTokens` / `outputTokens`（int ≥0）：**会话级 token = 总量权威**，进 `daily_user`（概览/趋势/Top 用户）。
@@ -90,7 +91,29 @@
 
 > **Token 防重复计数**：会话含多个 run，run token 是会话 token 子集。故会话 token 与 run token 分别进 `daily_user` 与 `daily_blueprint` 两个视图，各自求和、互不重复（`sum(工作流 token) ≤ sum(总量 token)`，非 run 活动不计入工作流）。
 
+**样本类事件（`artifact_review_reject`，未发布）**——与上面所有「指标类」事件不同，它的价值
+**全在原始 `events.payload` 里**（被拒意见的原话 + AI 回复），用来改进生成制品的那个 prompt：
+
+- **刻意不加任何聚合列**。加了列就得同步改 `lib/db.js` 的 recompute SQL，**漏一处，夜间 3:00
+  的补算会把 ingest 写对的值重算成 0，而且从数据本身看不出来**。它只走全 0 bump 保当日行存在。
+- **不进 `RECENCY_TYPES`**：这条事件是**评审人在局域网另一头**点的、由所属人实例代发 ——
+  算进「实质使用」会把一台没人在用的机器标成今日活跃。「使用」的定义只该有一个。
+- ⚠ **样本随 `events` 表按 `OPS_RETENTION_DAYS`（默认 90）整表清理**，清理不认 type。
+  也就是说这条遥测**只支持「近 90 天拿样本去改 prompt」这一种用法**；想攒半年再回头分析，
+  到时候会是空的。
+- ⚠ 取样本目前**只能上服务器 `sqlite3` 手查**：`/v1/export/*` 只导四张聚合表，没有原始事件导出。
+- 客户端侧已做完截断（逐字段字节上限，合计 ≤8KB）与脱敏（抹 32 位十六进制串、身份只发别名
+  `r1`/`r2`/`owner`）。服务端**不重复截断**——到这儿再截等于全文已经出网了。
+
 - **未知 type**(v2 前向兼容)：结构合格即落 events 原始表、**不做任何聚合**、计入 `accepted`。旧服务器遇新客户端不丢数据。
+  **（未发布）额外计数**（meta 键 `unknown_type_events`，累计非当日），由 `GET /v1/stats/overview`
+  的 `unknownTypeEvents` 带出，看板总览**仅在 >0 时**多出一张卡。
+  ★ 理由与 `daily_hour` 的丢弃计数同一条：**丢弃/不聚合要计数并在 UI 上暴露，否则这是静默漏数据**。
+  这里它防的是**跨仓漂移** —— 客户端加了新事件类型而这边 `KNOWN_TYPES` 没跟上时，
+  症状是「看板零样本 + 零报错 + 零日志」，与「客户端压根没发」完全无法区分。
+  ★★ 加新 type 时**两处都要改**：`KNOWN_TYPES` **和** `deltasOf`（后者没有 `case` 会走
+  `default: return null`，照样 `continue`，当日行都不建）。客户端那边有一条跨仓对拍用例
+  （`TechDemos/scripts/__tests__/telemetry-known-types-parity.test.js`）会真来读本文件对拍。
 - **数值净化**：`durationMs`/`activeMs`/`liveSessions`/`inputTokens`/`outputTokens`/`interruptions` 仅当为正有限数才计入，否则按 0。
 - **隐私约定(v1)**：不上传 cwd 明文、prompt、会话内容；`cwdHash` 为 sha256 前缀，仅用于项目数统计。
 
@@ -122,7 +145,10 @@ GET /healthz → 200 { "ok": true }
   "runsToday": 19,             // done+failed+halted
   "failuresToday": 7,
   "inTokensToday": 128340,     // token 总量(来自 session_end)
-  "outTokensToday": 31200
+  "outTokensToday": 31200,
+  "unknownTypeEvents": 0       // （未发布）KNOWN_TYPES 之外的事件**累计**条数(非当日)。
+                               // >0 = 客户端在发这边不认识的类型，即两仓事件清单漂了：
+                               // 那些事件落了原始表但**不做任何聚合**。总览页仅在 >0 时出卡。
 } }
 ```
 
