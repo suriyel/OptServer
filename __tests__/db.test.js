@@ -137,3 +137,30 @@ test('bumpDailyBlueprint：全 0 建行；重复 bump 各列累加', (t) => {
   assert.strictEqual(row.out_tokens, 3);
   assert.strictEqual(db.prepare('SELECT COUNT(*) c FROM daily_blueprint').get().c, 1);
 });
+
+test('qEventsByType：按类型倒序回读原始事件，payload 原样是字符串，limit 夹紧', (t) => {
+  const { dao } = openTempDb(t);
+  const mk = (id, type, payload) => dao.insertEvent({
+    eventId: id, installId: 'i1', user: 'u1', host: 'h1', type,
+    clientTs: '2026-07-02T10:00:00.000Z', serverTs: '2026-07-02T10:00:01.000Z',
+    day: '2026-07-02', appVersion: '0.4.0', payload: JSON.stringify(payload),
+  });
+  mk('e1', 'artifact_review_reject', { reviewer: 'r1', aiReply: null });
+  mk('e2', 'artifact_review_reject', { reviewer: 'r2', aiReply: { reply: 'x' } });
+  mk('e3', 'session_start', { a: 1 });
+
+  const rows = dao.qEventsByType('artifact_review_reject', 10);
+  assert.strictEqual(rows.length, 2, '只回本类型，别的类型不能混进来');
+  assert.strictEqual(rows[0].eventId, 'e2', '倒序：最近的在前');
+  assert.strictEqual(rows[0].appVersion, '0.4.0', '列名要驼峰化，与其余 q* 同口径');
+  // ★ payload 原样回字符串 —— DAO 不猜内容。这条钉死它，免得将来有人「顺手」在 DAO 里
+  //   JSON.parse：那样两端就各解一次，分歧只在畸形 payload 上冒出来，而那正是要查的时候。
+  assert.strictEqual(typeof rows[0].payload, 'string');
+  assert.strictEqual(JSON.parse(rows[1].payload).aiReply, null);
+
+  assert.strictEqual(dao.qEventsByType('artifact_review_reject', 1).length, 1);
+  assert.strictEqual(dao.qEventsByType('nope', 10).length, 0);
+  // limit 夹紧：0/负数/超大都不该把 SQL 带崩，也不该一次拖出整表。
+  assert.strictEqual(dao.qEventsByType('artifact_review_reject', 0).length, 2, '0 → 落回默认 20');
+  assert.strictEqual(dao.qEventsByType('artifact_review_reject', 99999).length, 2);
+});
