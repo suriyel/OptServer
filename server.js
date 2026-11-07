@@ -4,7 +4,7 @@
 // 装配顺序（语义即注释）：
 //   json body(1mb) → /healthz（门禁之前，探活永不受鉴权影响）
 //   → 全局门禁 createAuthGate（只保护看板：未登录页面→302 login.html、受保护 /v1→401；
-//     白名单含 POST /v1/events 采集上报、/healthz、/login.html、/v1/auth/login；含 static）
+//     白名单含 POST /v1/events 采集上报、GET /v1/config/evolve 自进化配置拉取、/healthz、/login.html、/v1/auth/login；含 static）
 //   → /v1 auth 路由（/auth/login 由门禁白名单放行）→ ingest / stats / export 路由
 //   → public/ 静态看板（仅登录后可达）→ /v1 JSON 404 → 错误兜底。
 //
@@ -28,6 +28,7 @@ const { createIngestRouter } = require('./lib/ingest');
 const { createStatsRouter } = require('./lib/stats');
 const { createExportRouter } = require('./lib/export');
 const { createUpdateRouter } = require('./lib/update');
+const { createEvolveConfigRouter } = require('./lib/evolve-config');
 const { seedAdmin, createAuthGate, createAuthRouter } = require('./lib/auth');
 
 function createApp(opts) {
@@ -51,6 +52,8 @@ function createApp(opts) {
   // 应用自动更新发布面（latest/download 免鉴权经门禁白名单；upload 是 octet-stream raw
   // stream——express.json 只拦 application/json，不会吃掉它的 body）
   app.use('/v1', createUpdateRouter({ releasesDir: opts.releasesDir || process.env.OPS_RELEASES_DIR, nowFn }));
+  // 蓝图自进化上报配置（GET 免鉴权经门禁白名单；PUT requireAdmin）
+  app.use('/v1', createEvolveConfigRouter(dao, { nowFn }));
 
   app.use(express.static(path.join(__dirname, 'public')));
   app.use('/v1', (req, res) => res.status(404).json({ ok: false, error: 'not found' }));

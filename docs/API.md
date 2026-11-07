@@ -13,6 +13,7 @@
 - [查询接口 `GET /v1/stats/*`](#查询接口-get-v1stats)
 - [CSV 导出 `GET /v1/export/*`](#csv-导出-get-v1export)
 - [应用自动更新 `/v1/update/*`](#应用自动更新-v1update)
+- [蓝图自进化上报配置 `/v1/config/evolve`](#蓝图自进化上报配置-v1configevolve)
 - [错误响应](#错误响应)
 
 ---
@@ -81,6 +82,9 @@
 | `bp_run_start` | 工作流 run 新建 | `{ blueprintId, runId, tool }` | **只落 events 不聚合**(run 计数以终态为准，避免跨日双计) |
 | `bp_run_end` | 工作流 run 终态 | `{ blueprintId, runId, status, activeMs, haltReason?, interruptions, inputTokens, outputTokens }` | daily_user 按 `status` 落 `runs_*` + `run_active_ms`；**`daily_blueprint` 落 runs/active_ms/interruptions/token(工作流归因)** |
 | `failure_event` | 异常信号 | `{ source, kind, reason, tool, runId?, blueprintId? }` | `daily_user.failures+1`、`daily_fail(day,version,kind)+1`；**带 `blueprintId` 则 `daily_blueprint.failures+1`** |
+| `bp_patch_proposal` | 蓝图自进化：客户端整合器暂存一条补丁（仅白名单内蓝图） | `{ signature, blueprintId, bpVersionHash, nodeId, signal, diff, rationale, evidence[{kind,text}], runId, bytes, truncated }` | 样本类：只建当日行 |
+| `bp_patch_verdict` | 蓝图自进化：本机应用 / 拒绝一条补丁（按 change） | `{ signature, verdict:'applied'|'rejected', reason? }` | 样本类：只建当日行 |
+| `framework_issue` | 蓝图自进化：整合器汇总的框架墙（守卫拒绝 / spawn 故障等），不受白名单 | `{ signature, category, ruleOrCode, sample, nodeId, blueprintId, count, passedAfter }` | 样本类：只建当日行 |
 | `artifact_review_reject` | 制品审批：一条评审意见被拒 | `{ aidHash, tool, kind, round, turns, reviewer, assessment, hadChange, rejectKind, quote, comment, reason, aiReply{…}, promptVer, genPromptRef, bytes, truncated }` | **只建当日行(计数 0)，不落任何聚合列** —— 见下方「样本类事件」 |
 
 **v0.2.0 新增 payload 字段**（客户端上报；缺失按 0 / 不归因，服务器 graceful）：
@@ -414,6 +418,15 @@ curl -X POST --data-binary @cancong-portable-0.0.4.exe \
 客户端在升级终局（启动自检判定成功/最终失败）上报，payload：
 `{ from, to, variant, ok, attempts, reason? }`（`reason` 仅 `ok:false` 时携带：`sha_mismatch` · `sfx_exit_nonzero` · `sfx_timeout` · `version_mismatch` · `other_instance` · `parent_alive` · `download_failed` · `disk_full` · `unknown`）。
 ingest：`ok:false` 计入 `daily_fail`（kind = `update:<reason>`）→ 失败页 kind 分布可见；`ok:true` 只存原始（升级铺开进度看 installs 的 `appVersion` 分布即可）。「最近失败事件」列表同时列出 `update_apply{ok:false}`（响应行带 `type` 字段区分）。
+
+## 蓝图自进化上报配置 `/v1/config/evolve`
+
+客户端（蚕丛）据此决定哪些蓝图的补丁提案 / 裁决可以上报，以及 spawn 时的随机留出概率（TechDemos `docs/BLUEPRINT-SELF-EVOLUTION-DESIGN.md` §4.1）。存 meta 表单键 `evolve_config`（JSON），零 DDL。
+
+- `GET /v1/config/evolve`（**免鉴权**，与 `POST /v1/events` 同档）→ `{ ok, uploadWhitelist:[bpId…], holdoutP, version }`；缺省 `[]` / `0.1` / `0`。客户端启动 + 每 6h 拉一次、缓存 24h，拉不到或过期一律按空白名单。
+- `PUT /v1/config/evolve`（鉴权内 + **requireAdmin**）body `{ uploadWhitelist, holdoutP? }`：白名单 ≤500 个、每个匹配 `^[A-Za-z0-9_.-]{1,128}$`（去重）；`holdoutP ∈ [0, 0.5]`（缺省 0.1）；非法 → 400。每次写入 `version+1`，记 `updatedAt / updatedBy`。
+
+上报整批可带 `Content-Encoding: gzip`（`express.json` 默认解压，1MB 上限按解压后计；`__tests__/evolve.test.js` 真 gzip POST 钉死）。
 
 ## 错误响应
 

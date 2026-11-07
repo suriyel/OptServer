@@ -8,6 +8,13 @@
 
 ### 新增能力
 
+**蓝图自进化上报（两仓同批，TechDemos 自进化批 3）：三类样本事件 + 上报配置接口 + gzip 入库钉死**
+
+- 新事件类型 `bp_patch_proposal`（补丁提案）、`bp_patch_verdict`（本机裁决）、`framework_issue`（框架墙汇总）：同时进 `KNOWN_TYPES` 与 `deltasOf`（各 `case … return {}`，只建当日行，载荷存原始表，不进 `RECENCY_TYPES`）——与 `artifact_review_reject` 同一套「样本类事件」做法，理由见 `docs/API.md`。
+- 新接口 `GET /v1/config/evolve`（免鉴权，进门禁白名单）/ `PUT /v1/config/evolve`（requireAdmin）：上报白名单与随机留出概率，存 meta 表 `evolve_config`，零 DDL；客户端拉不到或缓存过 24h 一律按空白名单。配置页签与审计日志留到自进化批 4。
+- gzip：客户端改为整批 gzip 上报。`express.json` 本来就默认解压，这次补了一条真 gzip POST 入库的测试把它钉死，不再靠推理。
+- 测试 151 → 155。
+
 **原始事件按类型回读：`dao.qEventsByType(type, limit)`（只读，给跨仓闭环用例用）**
 
 本服务自己的 stats 一律走聚合表、从不看原始表 —— 而采集端那边要验的恰恰是「我发出去的
