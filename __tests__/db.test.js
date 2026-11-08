@@ -20,11 +20,11 @@ function openTempDb(t) {
   return handle;
 }
 
-test('新库 PRAGMA：WAL + auto_vacuum=INCREMENTAL + user_version=5', (t) => {
+test('新库 PRAGMA：WAL + auto_vacuum=INCREMENTAL + user_version=6', (t) => {
   const { db } = openTempDb(t);
   assert.strictEqual(db.pragma('journal_mode', { simple: true }), 'wal');
   assert.strictEqual(db.pragma('auto_vacuum', { simple: true }), 2); // 2 = INCREMENTAL
-  assert.strictEqual(db.pragma('user_version', { simple: true }), 5); // v1 基础表 + v2 鉴权表 + v3 装失败索引 + v4 recency 列 + v5 时段表
+  assert.strictEqual(db.pragma('user_version', { simple: true }), 6); // v1 基础表 + v2 鉴权表 + v3 装失败索引 + v4 recency 列 + v5 时段表 + v6 自进化中心表
   assert.strictEqual(db.pragma('synchronous', { simple: true }), 1); // 1 = NORMAL
 });
 
@@ -39,7 +39,7 @@ test('重复 openDb：迁移不重跑，数据保留', (t) => {
     second.close();
     fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
-  assert.strictEqual(second.db.pragma('user_version', { simple: true }), 5);
+  assert.strictEqual(second.db.pragma('user_version', { simple: true }), 6);
   assert.strictEqual(second.dao.metaGet('k'), 'v1');
 });
 

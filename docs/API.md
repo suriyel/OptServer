@@ -424,9 +424,30 @@ ingest：`ok:false` 计入 `daily_fail`（kind = `update:<reason>`）→ 失败�
 客户端（蚕丛）据此决定哪些蓝图的补丁提案 / 裁决可以上报，以及 spawn 时的随机留出概率（TechDemos `docs/BLUEPRINT-SELF-EVOLUTION-DESIGN.md` §4.1）。存 meta 表单键 `evolve_config`（JSON），零 DDL。
 
 - `GET /v1/config/evolve`（**免鉴权**，与 `POST /v1/events` 同档）→ `{ ok, uploadWhitelist:[bpId…], holdoutP, version }`；缺省 `[]` / `0.1` / `0`。客户端启动 + 每 6h 拉一次、缓存 24h，拉不到或过期一律按空白名单。
-- `PUT /v1/config/evolve`（鉴权内 + **requireAdmin**）body `{ uploadWhitelist, holdoutP? }`：白名单 ≤500 个、每个匹配 `^[A-Za-z0-9_.-]{1,128}$`（去重）；`holdoutP ∈ [0, 0.5]`（缺省 0.1）；非法 → 400。每次写入 `version+1`，记 `updatedAt / updatedBy`。
+- `PUT /v1/config/evolve`（鉴权内 + **requireAdmin**）body `{ uploadWhitelist, holdoutP?, windowHour?, market? }`：白名单 ≤500 个、每个匹配 `^[A-Za-z0-9_.-]{1,128}$`（去重）；`holdoutP ∈ [0, 0.5]`（缺省 0.1）；`windowHour` 0–23 整数（自进化中心每日批处理时刻）；`market` = `null` 或 `{name, url, ref?}`（推送目标市场，null = 同机蚕丛登记的第一个）；后两项省略则沿用旧值；非法 → 400。每次写入 `version+1`，记 `updatedAt / updatedBy`，并写一行审计。响应形状同 GET（**中心字段不外露给客户端**）。
 
 上报整批可带 `Content-Encoding: gzip`（`express.json` 默认解压，1MB 上限按解压后计；`__tests__/evolve.test.js` 真 gzip POST 钉死）。
+
+## 蓝图自进化中心 `/v1/evolve/*`
+
+看板「自进化」页签的后端（TechDemos `docs/BLUEPRINT-SELF-EVOLUTION-DESIGN.md` §5）。全部在门禁内；读口登录即可，写口 **requireAdmin** 且每次写 `evolve_audit`。响应 `{ ok, data }`；列表带 `limit`（≤200）/`offset` 分页，不回大列。
+
+样本来源：`POST /v1/events` 入库时，三类自进化事件与 `bp_run_end.nodes` 在同一事务里增量写中心表——已归属某簇的签名直接挂簇（**只加计数、不进队列、零 LLM**），新签名排队等每日窗口。
+
+| 方法 · 路径 | 权限 | 说明 |
+|---|---|---|
+| `GET /v1/evolve/clusters?status&bp&limit&offset` | 登录 | 补丁簇列表（`status` ∈ open/adopted/rejected/parked/pushed）+ `basket:[{bpId,n}]`（各蓝图已采纳簇数） |
+| `GET /v1/evolve/clusters/:id` | 登录 | 簇详情：合成补丁原文（哨兵格式）、审查意见、最近 5 条证据样本 |
+| `POST /v1/evolve/clusters/:id/{adopt,reject,park,reopen}` | admin | 裁决；`reject` 须带 `{reason}`；非法迁移 409；`pushed` 终态不可再动 |
+| `GET /v1/evolve/fw-issues` | 登录 | 框架问题按次数排名（实例数、事后通过、修复 / 回归版本） |
+| `POST /v1/evolve/fw-issues/:sig/fixed` | admin | `{version:'x.y.z'}` 标「已修复于」（空串 = 清除）；之后 ≥ 该版本的客户端再报 ⇒ `regressedVersion` |
+| `GET /v1/evolve/holdout?from&to` | 登录 | 每「蓝图+节点」注入 vs 留出：n / 首轮通过率 / 平均打回 / 差值 95% CI；任一臂 <30 ⇒ `verdict:'insufficient'` |
+| `GET /v1/evolve/queue` | 登录 | 批次列表 + 各蓝图排队 / 失败样本数 + `running` |
+| `POST /v1/evolve/queue/run` | admin | 立即处理（202；正在跑 ⇒ 409 busy） |
+| `POST /v1/evolve/queue/requeue` | admin | `{bpId?}` 失败样本重新排队 |
+| `POST /v1/evolve/push/:bpId` | admin | 篮子推成市场分支：取市场最新版装成副本 `<bpId>-evo` → 按节点套全部采纳簇 → 一次 `publish {asId:bpId, version: 市场版+1, message}`；回 `{branch, version, pushed, skipped}`。打不上的簇退回重新合成；不在市场 ⇒ 409 `not-in-market`；篮子空 ⇒ 409 `empty-basket`；蚕丛侧失败 ⇒ 502 |
+| `GET /v1/evolve/export/:bpId` | admin | 导出 `git apply` 补丁（`text/x-patch`，头部注释附提交说明）；不改簇状态 |
+| `GET /v1/evolve/config` · `GET /v1/evolve/audit` | admin | 完整配置（含窗口 / 市场）+ 审计分页 · 单看审计 |
 
 ## 错误响应
 

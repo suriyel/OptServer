@@ -50,6 +50,9 @@ curl -s -X POST http://localhost:5900/v1/events -H 'content-type: application/js
 | `OPS_SESSION_DAYS` | `7` | 登录会话有效期天数 |
 | `OPS_SECURE_COOKIE` | 关 | 设为 `1` 时会话 Cookie 带 `Secure`（HTTPS 部署用） |
 | `OPS_RELEASES_DIR` | `./releases` | 应用更新发布区目录（磁盘规划见下，约 1.2GB；含派生 tar.gz 后约 ×1.9） |
+| `OPS_CANCONG_URL` | `http://127.0.0.1:5599` | 自进化中心回环调用的**同机**蚕丛独立版地址（`/_blueprint/*` 只靠绑回环、无 token） |
+| `OPS_CANCONG_TOOL` | 蚕丛缺省工具 | 中心工作流 run 用的蚕丛工具 id（如 `opencode`）；中心机一般要显式钉一个装好且配了模型的 |
+| `OPS_EVOLVE_WORK_DIR` | `<OPS_DB_PATH 同级>/evolve-work` | 自进化中心批处理目录（每批一个子目录，建时 0777——蚕丛进程要在里面写 `output/`） |
 | `OPS_7Z_BIN` | 自动探测 | 7z 二进制路径（发布时从便携 exe 派生 tar.gz 解压道用）。探测链：本变量 → `tools/7z/`（win `7zr.exe` / linux `7zz`）→ PATH。**Linux 部署机装 `p7zip-full` 或设本变量**；解析不到时派生失败但**不阻断发布**（manifest 无 archive → `[update] archive 派生失败` 日志与发布页可见；⚠ 新客户端对无 archive 的版本会拒绝升级并报 `feed_no_archive`，务必把 7z 配起来） |
 
 **启动补派生（backfill）**：服务启动时自动检查当前已发布版本，缺 tar.gz 的变体就地从 exe

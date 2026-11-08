@@ -35,3 +35,24 @@ export function makeGuard() {
     stale(g) { return g !== gen; },
   };
 }
+
+/**
+ * 写请求（自进化中心等新代码用；旧页面各自的私有 call 不动）：非 2xx / ok:false 一律抛 Error（带服务端 error 原文）
+ * @param {string} method
+ * @param {string} p 以 / 开头的 /v1 下路径
+ * @param {any} [body]
+ * @returns {Promise<any>} 响应的 data 字段
+ */
+export async function send(method, p, body) {
+  /** @type {RequestInit} */
+  const opts = { method, headers: {} };
+  if (body !== undefined) {
+    opts.headers = { 'Content-Type': 'application/json' };
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch('/v1' + p, opts);
+  if (res.status === 401) { location.href = '/login.html'; throw new Error('unauthorized'); }
+  const j = await res.json().catch(() => null);
+  if (!res.ok || !j || j.ok !== true) throw new Error((j && j.error) || ('HTTP ' + res.status));
+  return j.data;
+}

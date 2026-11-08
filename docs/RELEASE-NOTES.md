@@ -8,10 +8,19 @@
 
 ### 新增能力
 
+**蓝图自进化中心（两仓同批，TechDemos 自进化批 4）：补丁簇汇总 → 每日合成与审查 → 采纳后推成市场分支**
+
+- 看板新增「自进化」页签，下分 **补丁簇 / 框架问题 / 留出对照 / 队列 / 配置** 五页。管理员可采纳（进篮子）/ 驳回（须写理由）/ 搁置补丁簇，标记框架问题「已修复于 vX」（之后新版本再报会标红回归），改上报白名单 / 留出概率 / 每日批处理时刻 / 目标市场；所有写操作留审计。
+- 入库即增量写中心表（schema **v6**，新增 6 张表，见 `docs/ARCHITECTURE.md`）：同一签名再次上报**只加计数、不排队、不调模型**；已裁决的簇不会再产出合成补丁。
+- 每日窗口（默认 02:00）或「立即处理」：经本机回环让同机蚕丛无头跑中心工作流 `center-blueprint/evolve-center/`（聚类 → 合成 → 独立审查），输入 / 输出走批目录文件；失败的批次自动重排一次，再败标红。合成补丁入库前确定性复核能否逐字套上。
+- 「推送到市场」：取市场最新版装成副本、把篮子里的补丁簇按节点套上，一次推成 `publish/<工作流>-<版本+1>` 分支，提交说明逐簇写证据与审查结论；在新版上打不上的簇自动退回重新合成。工作流不在目标市场时可「导出补丁」（`git apply`）。
+- 部署：新增 env `OPS_CANCONG_URL` / `OPS_CANCONG_TOOL` / `OPS_EVOLVE_WORK_DIR`；中心机的蚕丛独立版须以 `--env BP_EVOLVE=0` 安装（见 `docs/DEPLOYMENT.md` §8.1）。
+- 测试 155 → 169（`__tests__/evolve-center.test.js`：桩蚕丛下的三颗牙齿——同签名零排队、已裁决簇不出补丁、多簇一分支版本 +1——以及失败重试、锚点退回、导出可 `git apply`、鉴权与审计）；两仓真闭环在 TechDemos `st/tests/evolve-center-push.spec.ts`。
+
 **蓝图自进化上报（两仓同批，TechDemos 自进化批 3）：三类样本事件 + 上报配置接口 + gzip 入库钉死**
 
 - 新事件类型 `bp_patch_proposal`（补丁提案）、`bp_patch_verdict`（本机裁决）、`framework_issue`（框架墙汇总）：同时进 `KNOWN_TYPES` 与 `deltasOf`（各 `case … return {}`，只建当日行，载荷存原始表，不进 `RECENCY_TYPES`）——与 `artifact_review_reject` 同一套「样本类事件」做法，理由见 `docs/API.md`。
-- 新接口 `GET /v1/config/evolve`（免鉴权，进门禁白名单）/ `PUT /v1/config/evolve`（requireAdmin）：上报白名单与随机留出概率，存 meta 表 `evolve_config`，零 DDL；客户端拉不到或缓存过 24h 一律按空白名单。配置页签与审计日志留到自进化批 4。
+- 新接口 `GET /v1/config/evolve`（免鉴权，进门禁白名单）/ `PUT /v1/config/evolve`（requireAdmin）：上报白名单与随机留出概率，存 meta 表 `evolve_config`，零 DDL；客户端拉不到或缓存过 24h 一律按空白名单。配置页签与审计日志已在自进化批 4 补上（见上条）。
 - gzip：客户端改为整批 gzip 上报。`express.json` 本来就默认解压，这次补了一条真 gzip POST 入库的测试把它钉死，不再靠推理。
 - 测试 151 → 155。
 

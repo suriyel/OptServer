@@ -30,6 +30,9 @@ npm start                  # 等价 node server.js，默认 http://localhost:590
 | `OPS_SESSION_DAYS` | `7` | 登录会话有效期天数 |
 | `OPS_SECURE_COOKIE` | 关 | 设为 `1` 时会话 Cookie 带 `Secure`(HTTPS 部署用) |
 | `OPS_RELEASES_DIR` | `./releases` | 应用更新发布区目录，见 §9.1 磁盘规划 |
+| `OPS_CANCONG_URL` | `http://127.0.0.1:5599` | 自进化中心回环调用的**同机**蚕丛独立版地址（`/_blueprint/*` 只靠绑回环、无 token） |
+| `OPS_CANCONG_TOOL` | 蚕丛缺省工具 | 中心工作流 run 用的蚕丛工具 id（如 `opencode`）；中心机一般要显式钉一个装好且配了模型的 |
+| `OPS_EVOLVE_WORK_DIR` | `<OPS_DB_PATH 同级>/evolve-work` | 自进化中心批处理目录（每批一个子目录，建时 0777——蚕丛进程要在里面写 `output/`） |
 | `TZ` | 系统时区 | **必须钉死为 `Asia/Shanghai`**，见下 |
 
 ## 4. 时区(重要)
@@ -158,6 +161,16 @@ curl "http://localhost:5900/v1/installs"
 - **错过自动补跑**：进程重启后若 `last_job_day != 今日`，30 秒后补跑一次(job 幂等，多跑无害)。
 - **失败自动重试**：job 内部异常时**不推进** `last_job_day`，下次启动补跑与次日定时都会重试；失败原因记入 `meta.last_job_result`。
 - 查看上次执行：`sqlite3 ops.db "SELECT key,value FROM meta WHERE key LIKE 'last_job%'"`。
+
+## 8.1 自进化中心（同机蚕丛独立版）
+
+看板「自进化」页签的队列处理与「推送到市场」要回环调**同一台机器上**的蚕丛独立版（TechDemos `docs/LINUX-STANDALONE-SERVER-DESIGN.md`）。
+
+- **装蚕丛独立版时必须带 `--env BP_EVOLVE=0`**（安装器不会自动写）：中心机上的蚕丛自己不能再产自进化提案，否则会形成自我提案回路。
+- 中心机蚕丛要配好一个能跑的工具与模型，并在本服务设 `OPS_CANCONG_TOOL` 钉住它；目标市场的 git 凭据也配在蚕丛那边（本服务不碰凭据）。
+- 两个服务若不是同一系统用户：`OPS_EVOLVE_WORK_DIR` 的父目录要让蚕丛进程能进（批目录本身建时 0777）；中心工作流目录 `center-blueprint/evolve-center/` 要让蚕丛进程能读（处理前经回环 `import {type:'local'}` 装进蚕丛，版本不同自动重装）。
+- **每日窗口**：进程内调度，默认本地 **02:00**（错开 03:00 夜间 job），在配置页改，下一轮生效；看板「立即处理」随时手动触发。失败的批次样本退回重排，第二次再败标红，在队列页「重新排队」。
+- 目标市场留空 = 蚕丛登记的第一个市场（首启即官方市场，官方仓分支是 `master`）；手填时 ref 要填对。
 
 ## 9. 备份
 

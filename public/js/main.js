@@ -10,10 +10,11 @@ import * as blueprints from './features/blueprints.js';
 import * as users from './features/users.js';
 import * as failures from './features/failures.js';
 import * as installs from './features/installs.js';
+import * as evolve from './features/evolve.js';
 import * as release from './features/release.js';
 
 const REFRESH_MS = 60 * 1000;
-const PAGES = { overview, trend, blueprints, users, failures, installs, release };
+const PAGES = { overview, trend, blueprints, users, failures, installs, evolve, release };
 /** @type {Record<string, boolean>} */
 const inited = {};
 let active = '';

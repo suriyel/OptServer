@@ -24,6 +24,12 @@ lib/
   update.js          /v1/update/*：应用自动更新发布面（文件系统存储，不落 SQLite）
   aggregate.js       夜间 job：核对补算 + 滚动清理 + 空间回收 + 进程内调度
   time-utils.js      localDay（day 归日）+ shiftDay（日历运算）
+  evolve-config.js   /v1/config/evolve：自进化上报配置（客户端拉取）+ 中心配置与审计
+  db-evolve.js       自进化中心 v6 表 DDL + DAO（与 db.js 同属 SQL 层）
+  evolve-ingest.js   入库即 upsert 中心表（ingestBatch 幂等门后同事务调用）
+  evolve-center.js   /v1/evolve/*：看板「自进化」页签读写口
+  center/            回环调同机蚕丛：cancong-client / upstream（目标市场 + 副本）/ runner（队列）/ basket（推送·导出）/ patch（补丁哨兵）/ scheduler（每日窗口）
+center-blueprint/    evolve-center 中心工作流（聚类 → 合成 → 审查），处理前装进同机蚕丛
 public/              看板：index.html + login.html + js/{core,features} + css + vendor/{echarts,fonts}（七页）
 scripts/             bench.js（压测）/ seed-demo.js（灌演示数据）/ migrate.js（对已有库单独迁移）/ vendor-assets.js（拷 vendored 前端库）
 deploy/              cancong-ops.service（systemd 单元）
@@ -56,6 +62,8 @@ releases/            应用更新发布区（运行时生成，OPS_RELEASES_DIR 
 | `sessions` | 登录会话(token→username，按 `expires_at` 惰性过期) | 会话期 |
 
 > 术语：**工作流** = 内部 `blueprint`/`blueprintId`（事件 `bp_run_*` 沿用既有契约名）。
+
+**v6 自进化中心表**（`lib/db-evolve.js`，2026-11-07）：`evolve_samples`（三类样本，入库即写、不随 90 天清理）/ `evolve_clusters`（补丁簇，计数挂簇时整行重算）/ `fw_issues`（框架问题按签名聚合）/ `evolve_batches`（队列批次）/ `evolve_holdout`（留出对照按天累加）/ `evolve_audit`（配置与裁决审计）。均永久保留。上面「11 张表 / 当前 v5」的说法止于 v5，现为 **17 张 / v6**。
 
 ### recency(`last_at`) 的三条写路径必须同口径
 

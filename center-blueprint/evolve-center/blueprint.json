@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 3,
+  "id": "evolve-center",
+  "version": "1.0.0",
+  "title": "自进化中心批处理",
+  "description": "一句话描述：把多台机器上报的同一工作流补丁提案聚成簇、对上游版本合成一份补丁并独立审查。\n适合场景：运营看板（OptServer）每日窗口或「立即处理」时由同机蚕丛无头运行，一次处理一个工作流的一批新签名。\n不适合场景：不适合人工交互运行，也不直接修改任何工作流——只产出文件，由运营看板入库和推送。\n期望用户输入：工作目录 input/ 下的 manifest.json、samples.jsonl、clusters.json 与 base/<节点>/SKILL.md（运营看板写入）。\n处理方式：cluster 节点归簇，synthesize 节点只对未裁决的簇合成补丁，review 节点对抗审查。\n输出：output/assign.json、output/synth/<簇>.txt（补丁哨兵格式）、output/review.json。\n简单示例：三台机器对同一节点提了措辞不同的「先跑测试再提交」，聚成一簇并合成一段补丁。",
+  "startNode": "cluster",
+  "nodes": [
+    { "id": "cluster", "title": "归簇", "x": 120, "y": 200 },
+    { "id": "synthesize", "title": "合成补丁", "x": 420, "y": 200 },
+    { "id": "review", "title": "独立审查", "x": 720, "y": 200 }
+  ],
+  "edges": [
+    { "from": "cluster", "to": "synthesize", "when": "status == \"ok\"" },
+    { "from": "synthesize", "to": "review", "when": "status == \"ok\"" }
+  ],
+  "tags": ["native"]
+}
