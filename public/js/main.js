@@ -1,5 +1,5 @@
 // @ts-check
-// main.js —— 装配：hash tab 路由 + 60s 自动刷新（只刷激活页；document.hidden 暂停）
+// main.js —— 装配：hash tab 路由（#tab 或 #tab/子页）+ 60s 自动刷新（只刷激活页；document.hidden 暂停）
 
 import { onRangeChange } from './core/range.js';
 import { me, logout } from './core/auth.js';
@@ -10,21 +10,24 @@ import * as blueprints from './features/blueprints.js';
 import * as users from './features/users.js';
 import * as failures from './features/failures.js';
 import * as installs from './features/installs.js';
+import * as fw from './features/fw.js';
 import * as evolve from './features/evolve.js';
 import * as release from './features/release.js';
 
 const REFRESH_MS = 60 * 1000;
-const PAGES = { overview, trend, blueprints, users, failures, installs, evolve, release };
+const PAGES = { overview, trend, blueprints, users, failures, fw, installs, evolve, release };
 /** @type {Record<string, boolean>} */
 const inited = {};
 let active = '';
 
-function currentTab() {
-  const h = location.hash.replace('#', '');
-  return Object.prototype.hasOwnProperty.call(PAGES, h) ? h : 'overview';
+// hash 第一段是页签，其余是子路由（目前只有「自进化」页签用：#evolve/clusters）
+function parseHash() {
+  const [h, ...rest] = location.hash.replace('#', '').split('/');
+  const tab = Object.prototype.hasOwnProperty.call(PAGES, h) ? h : 'overview';
+  return { tab, sub: rest.join('/') || undefined };
 }
 
-function show(tab) {
+function show(tab, sub) {
   active = tab;
   for (const name of Object.keys(PAGES)) {
     const el = document.getElementById('page-' + name);
@@ -34,7 +37,8 @@ function show(tab) {
     a.classList.toggle('active', /** @type {HTMLElement} */ (a).dataset.tab === tab);
   });
   const el = /** @type {HTMLElement} */ (document.getElementById('page-' + tab));
-  if (!inited[tab]) { inited[tab] = true; PAGES[tab].init(el); }
+  if (!inited[tab]) { inited[tab] = true; PAGES[tab].init(el, sub); }
+  else if (sub && PAGES[tab].navigate) PAGES[tab].navigate(sub);
   refreshActive();
 }
 
@@ -82,11 +86,13 @@ async function initAuthUI() {
   });
 }
 
-window.addEventListener('hashchange', () => show(currentTab()));
+window.addEventListener('hashchange', () => { const h = parseHash(); show(h.tab, h.sub); });
+// 本中心没有共部署自进化（/v1/discovery 的 services.evolve 为 null）⇒ 隐藏页签
+evolve.hasEvolve().then((yes) => { const a = document.getElementById('tab-evolve'); if (a && !yes) a.style.display = 'none'; });
 onRangeChange(() => refreshActive());
 
 setInterval(() => { if (!document.hidden) refreshActive(); }, REFRESH_MS);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshActive(); });
 
 initAuthUI();
-show(currentTab());
+{ const h = parseHash(); show(h.tab, h.sub); }

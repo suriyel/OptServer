@@ -30,9 +30,7 @@ npm start                  # 等价 node server.js，默认 http://localhost:590
 | `OPS_SESSION_DAYS` | `7` | 登录会话有效期天数 |
 | `OPS_SECURE_COOKIE` | 关 | 设为 `1` 时会话 Cookie 带 `Secure`(HTTPS 部署用) |
 | `OPS_RELEASES_DIR` | `./releases` | 应用更新发布区目录，见 §9.1 磁盘规划 |
-| `OPS_CANCONG_URL` | `http://127.0.0.1:5599` | 自进化中心回环调用的**同机**蚕丛独立版地址（`/_blueprint/*` 只靠绑回环、无 token） |
-| `OPS_CANCONG_TOOL` | 蚕丛缺省工具 | 中心工作流 run 用的蚕丛工具 id（如 `opencode`）；中心机一般要显式钉一个装好且配了模型的 |
-| `OPS_EVOLVE_WORK_DIR` | `<OPS_DB_PATH 同级>/evolve-work` | 自进化中心批处理目录（每批一个子目录，建时 0777——蚕丛进程要在里面写 `output/`） |
+| `OPS_EVOLVE` | 不设 | 共部署的自进化服务 cancong-evolve：`:5901`（同主机相对，共部署推荐）/ 绝对 URL（另一台机器，只供客户端上报）/ 不设（没有）。经 `GET /v1/discovery` 告诉客户端与看板（见 `docs/DEPLOYMENT.md` §8.1） |
 | `TZ` | 系统时区 | **必须钉死为 `Asia/Shanghai`**，见下 |
 
 ## 4. 时区(重要)
@@ -162,16 +160,24 @@ curl "http://localhost:5900/v1/installs"
 - **失败自动重试**：job 内部异常时**不推进** `last_job_day`，下次启动补跑与次日定时都会重试；失败原因记入 `meta.last_job_result`。
 - 查看上次执行：`sqlite3 ops.db "SELECT key,value FROM meta WHERE key LIKE 'last_job%'"`。
 
-## 8.1 自进化中心（同机蚕丛独立版）
+## 8.1 共部署自进化服务（cancong-evolve）
 
-看板「自进化」页签的队列处理与「推送到市场」要回环调**同一台机器上**的蚕丛独立版（TechDemos `docs/LINUX-STANDALONE-SERVER-DESIGN.md`）。
+蓝图自进化中心（补丁簇 / 队列 / 篮子推送 / 留出对照）2026-11 拆成独立服务 **cancong-evolve**（独立仓 EvolveServer，
+部署见该仓 `docs/DEPLOYMENT.md`；设计 TechDemos `docs/EVOLVE-SERVICE-SPLIT-DESIGN.md`）。中心机的形态：
 
-- **装蚕丛独立版时必须带 `--env BP_EVOLVE=0`**（安装器不会自动写）：中心机上的蚕丛自己不能再产自进化提案，否则会形成自我提案回路。
-- 中心机蚕丛要配好一个能跑的工具与模型，并在本服务设 `OPS_CANCONG_TOOL` 钉住它；目标市场的 git 凭据也配在蚕丛那边（本服务不碰凭据）。
-- 两个服务若不是同一系统用户：`OPS_EVOLVE_WORK_DIR` 的父目录要让蚕丛进程能进（批目录本身建时 0777）；中心工作流目录 `center-blueprint/evolve-center/` 要让蚕丛进程能读（处理前经回环 `import {type:'local'}` 装进蚕丛，版本不同自动重装）。
-- **每日窗口**：进程内调度，默认本地 **02:00**（错开 03:00 夜间 job），在配置页改，下一轮生效；看板「立即处理」随时手动触发。失败的批次样本退回重排，第二次再败标红，在队列页「重新排队」。
-- 目标市场留空 = 蚕丛登记的第一个市场（首启即官方市场，官方仓分支是 `master`）；手填时 ref 要填对。
-- 以上步骤已在 Ubuntu 24.04 上按本文 §5 真装演练过（本服务 `User=ops`、蚕丛 `User=<登录用户>`，默认批目录 `/var/lib/cancong-ops/evolve-work` 即可，无需额外放权），回归用例 = TechDemos `st/tests/evolve-center-node.spec.ts`（`npm run st:standalone`）。
+- 同一台机器：本服务 `:5900` + cancong-evolve `:5901`（`EVOLVE_AUTH=ops` 复用本服务登录）+ 蚕丛独立版 `:5599`（`--env BP_EVOLVE=0`）。
+- 本服务单元设 `Environment=OPS_EVOLVE=:5901`（`deploy/cancong-ops.service` 已带）：`GET /v1/discovery` 据此告诉客户端「自进化在同主机 5901」，
+  看板「自进化」页签据此跨源挂载 cancong-evolve 的页面。不设 ⇒ 页签隐藏、客户端不往这里推自进化样本。
+- **适用边界**：浏览器访问看板与 cancong-evolve 必须同主机名、同为 http（Cookie 按主机共享、SameSite 按协议判同站）。
+- 账号统一在本服务管：本服务管理员 = 自进化管理员，普通用户 = 只读。
+- 「框架问题」仍归本服务（顶层页签，含「已修复于 vX / 回归」）。
+- **两服务同一窗口锁步升级**；升级前备份两份库。
+
+### 8.2 从带自进化中心的旧版本升级（schema v6 → v7）
+
+v7 迁移删掉五张自进化表（`evolve_samples/clusters/batches/holdout/audit`）与 meta 键 `evolve_config`，保留 `fw_issues`
+并把机器数回填进新表 `fw_issue_machines`。**迁移只进不退**：升级前按 §9 备份 `ops.db`；回退 = 还原备份 + 回退代码
+（单纯回退代码时 v6 迁移不会重跑，旧代码启动即因表缺失报错）。自进化旧数据不迁移（拆分时现网未上线自进化）。
 
 ## 9. 备份
 

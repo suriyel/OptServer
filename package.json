@@ -2,7 +2,7 @@
   "name": "cancong-ops",
   "version": "0.4.0",
   "private": true,
-  "description": "蚕丛 harness 运营统计服务器：事件 ingest + SQLite 存储聚合 + stats/export API + 自建看板 + 应用自动更新发布面",
+  "description": "蚕丛 harness 运营统计服务器：事件 ingest + SQLite 存储聚合 + stats/export API + 自建看板 + 应用自动更新发布面 + 框架问题 + 服务发现",
   "engines": {
     "node": ">=18"
   },
@@ -12,7 +12,8 @@
     "bench": "node scripts/bench.js",
     "migrate": "node scripts/migrate.js",
     "backfill": "node scripts/backfill.js",
-    "vendor": "node scripts/vendor-assets.js"
+    "vendor": "node scripts/vendor-assets.js",
+    "kit:sync": "node scripts/kit-sync.js"
   },
   "dependencies": {
     "better-sqlite3": "^12.10.0",

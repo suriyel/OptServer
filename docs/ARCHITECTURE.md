@@ -20,16 +20,15 @@ lib/
   stats.js           GET /v1/stats/* + /v1/installs：查询聚合
   export.js          GET /v1/export/*：CSV 导出（列定义 + payload 拍平），序列化走 csv.js
   csv.js             CSV 序列化（中文表头 + UTF-8 BOM + 注入防护）
-  auth.js            scrypt 口令 + 会话令牌 + 全局门禁 createAuthGate + requireAdmin + 账号路由
+  auth.js            门禁白名单 + 对外导出（口令 / 会话 / 账号路由用 kit 的 local 提供者，vendor/svc-kit）
   update.js          /v1/update/*：应用自动更新发布面（文件系统存储，不落 SQLite）
   aggregate.js       夜间 job：核对补算 + 滚动清理 + 空间回收 + 进程内调度
   time-utils.js      localDay（day 归日）+ shiftDay（日历运算）
-  evolve-config.js   /v1/config/evolve：自进化上报配置（客户端拉取）+ 中心配置与审计
-  db-evolve.js       自进化中心 v6 表 DDL + DAO（与 db.js 同属 SQL 层）
-  evolve-ingest.js   入库即 upsert 中心表（ingestBatch 幂等门后同事务调用）
-  evolve-center.js   /v1/evolve/*：看板「自进化」页签读写口
-  center/            回环调同机蚕丛：cancong-client / upstream（目标市场 + 副本）/ runner（队列）/ basket（推送·导出）/ patch（补丁哨兵）/ scheduler（每日窗口）
-center-blueprint/    evolve-center 中心工作流（聚类 → 合成 → 审查），处理前装进同机蚕丛
+  db-fw.js           框架问题 DAO + v7 迁移 + 冻结的 v6 迁移历史（与 db.js 同属 SQL 层）
+  fw-ingest.js       framework_issue 入库（ingestBatch 幂等门后同事务调用；回归判定）
+  fw.js              /v1/fw-issues：框架问题页签读写口
+  discovery.js       GET /v1/discovery：服务发现（OPS_EVOLVE → services.evolve）
+vendor/svc-kit/      kit 副本（真源 EvolveServer/kit；npm run kit:sync，__tests__/kit-parity.test.js 逐字节对拍）
 public/              看板：index.html + login.html + js/{core,features} + css + vendor/{echarts,fonts}（七页）
 scripts/             bench.js（压测）/ seed-demo.js（灌演示数据）/ migrate.js（对已有库单独迁移）/ vendor-assets.js（拷 vendored 前端库）
 deploy/              cancong-ops.service（systemd 单元）
@@ -63,7 +62,7 @@ releases/            应用更新发布区（运行时生成，OPS_RELEASES_DIR 
 
 > 术语：**工作流** = 内部 `blueprint`/`blueprintId`（事件 `bp_run_*` 沿用既有契约名）。
 
-**v6 自进化中心表**（`lib/db-evolve.js`，2026-11-07）：`evolve_samples`（三类样本，入库即写、不随 90 天清理）/ `evolve_clusters`（补丁簇，计数挂簇时整行重算）/ `fw_issues`（框架问题按签名聚合）/ `evolve_batches`（队列批次）/ `evolve_holdout`（留出对照按天累加）/ `evolve_audit`（配置与裁决审计）。均永久保留。上面「11 张表 / 当前 v5」的说法止于 v5，现为 **17 张 / v6**。
+**v7 自进化中心拆出**（`lib/db-fw.js`，2026-11-08）：删五张自进化表，保留 `fw_issues`，新增 `fw_issue_machines`（框架问题机器数来源）；现为 **13 张 / v7**。自进化中心拆成独立服务 cancong-evolve（TechDemos `docs/EVOLVE-SERVICE-SPLIT-DESIGN.md`）。以下为 v6 历史：**v6 自进化中心表**（2026-11-07）：`evolve_samples`（三类样本，入库即写、不随 90 天清理）/ `evolve_clusters`（补丁簇，计数挂簇时整行重算）/ `fw_issues`（框架问题按签名聚合）/ `evolve_batches`（队列批次）/ `evolve_holdout`（留出对照按天累加）/ `evolve_audit`（配置与裁决审计）。均永久保留。上面「11 张表 / 当前 v5」的说法止于 v5，现为 **17 张 / v6**。
 
 ### recency(`last_at`) 的三条写路径必须同口径
 
@@ -151,7 +150,7 @@ ingest 写入时用 `localDay(now)`(服务器本地时区)算出 `day` 并**固�
 
 ## 7. 看板(public/)
 
-单 `index.html` + hash tab 七页(概览/趋势/**工作流**/**用户**/失败/实例/**版本发布**)，vanilla ESM：`js/core/{api,auth,download,fmt,echarts,range,detail}.js` + `js/features/{overview,trend,blueprints,users,failures,installs,accounts,release}.js`。设计语言为「精密仪表盘」暗色(amber 信号色 + cyan 副色、IBM Plex Mono 等宽数字、载入错峰揭示)。**图表库统一为 vendored ECharts**，收口于 `core/echarts.js`(`makeChart` 实例管理 + 主题；`rankedBar`/`stackedBar` 横向、`timeLine`/`timeBars` 时序)。60s 自动刷新当前激活页，`document.hidden` 时暂停。
+单 `index.html` + hash tab 九页(概览/趋势/**工作流**/**用户**/失败/**框架问题**/实例/**自进化**/**版本发布**)，vanilla ESM：`js/core/{api,auth,download,fmt,echarts,range,detail}.js`（**重导出 kit 前端核心** `/vendor/svc-kit/ui/*`）+ `js/features/{overview,trend,blueprints,users,failures,fw,installs,evolve,accounts,release}.js`。hash 第一段是页签、其余是子路由（`#evolve/queue`）。**「自进化」页签不含自进化代码**：`features/evolve.js` 经 `/v1/discovery` 拿端口，跨源 `import` cancong-evolve 的 `ui/mount.js` 挂载（同主机跨端口 Cookie 共享；`MOUNT_API` 不符或不可达只出提示卡）；未共部署时页签隐藏。设计 token 来自 kit `tokens.css`。设计语言为「精密仪表盘」暗色(amber 信号色 + cyan 副色、IBM Plex Mono 等宽数字、载入错峰揭示)。**图表库统一为 vendored ECharts**，收口于 `core/echarts.js`(`makeChart` 实例管理 + 主题；`rankedBar`/`stackedBar` 横向、`timeLine`/`timeBars` 时序)。60s 自动刷新当前激活页，`document.hidden` 时暂停。
 
 - **趋势页**：顶部「按日期 / 实时」模式切换(localStorage 记忆)。**按日期**沿用全局 7/30/90，x=日；**实时**近 24h/1min 分桶(`/stats/realtime` 直查 events，前端补零完整分钟轴 + 本地 HH:MM + dataZoom)。四图 = 事件脉冲(面积) / run 终态堆叠 / 活跃人数+会话 / Token。
 - **工作流页**：ECharts 横向条形(主视图，指标切换：运行终态堆叠 / Token 输入输出 / 中断排名) + 明细排序表。

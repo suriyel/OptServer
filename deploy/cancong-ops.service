@@ -18,6 +18,8 @@ RestartSec=3
 Environment=TZ=Asia/Shanghai
 Environment=PORT=5900
 Environment=OPS_DB_PATH=/var/lib/cancong-ops/ops.db
+# 共部署的自进化服务 cancong-evolve（同主机 5901）；中心机不部署它时删掉这一行（看板页签随之隐藏）
+Environment=OPS_EVOLVE=:5901
 
 [Install]
 WantedBy=multi-user.target

@@ -2,6 +2,9 @@
    美学方向：精密仪表盘 / mission-control。工业暗色 + amber 信号色 + cyan 副色，
    等宽数字(IBM Plex Mono)、细锐边框、微光与网格纹理、载入错峰揭示。 */
 
+/* 设计 token 来自 kit（vendor/svc-kit/ui/tokens.css，与 cancong-evolve 同一份）；@import 必须先于一切规则（含 @font-face） */
+@import url('/vendor/svc-kit/ui/tokens.css');
+
 @font-face {
   font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 400;
   font-display: swap; src: url('/vendor/fonts/ibm-plex-mono-400.woff2') format('woff2');
@@ -15,38 +18,6 @@
   font-display: swap; src: url('/vendor/fonts/ibm-plex-mono-600.woff2') format('woff2');
 }
 
-:root {
-  /* 层叠深色表面 */
-  --bg: #0c0e12;
-  --bg-2: #0f1217;
-  --panel: #14171d;
-  --panel-2: #1a1e26;
-  --elev: #1f2530;
-  --border: #262b34;
-  --border-soft: #1d222b;
-  /* 文字 */
-  --text: #dfe3e9;
-  --text-2: #aab0bb;
-  --muted: #7b828f;
-  --dim: #565d69;
-  /* 信号色 */
-  --amber: #f0a830;
-  --amber-dim: #c9892a;
-  --cyan: #38d6c4;
-  --green: #54c08a;
-  --red: #e8615f;
-  --orange: #ec8a3c;
-  --blue: #6aa6e0;
-  --violet: #a888e6;
-  /* 字体 */
-  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  --font-sans: 'Microsoft YaHei', 'PingFang SC', 'Segoe UI', system-ui, sans-serif;
-  /* 尺度 */
-  --fs-2xs: 11px; --fs-xs: 12px; --fs-sm: 13px; --fs-md: 14px; --fs-lg: 17px; --fs-xl: 30px;
-  --sp: 16px;
-  --radius: 12px;
-  --shadow: 0 1px 0 rgba(255,255,255,0.03) inset, 0 8px 24px -12px rgba(0,0,0,0.6);
-}
 
 * { box-sizing: border-box; }
 
@@ -416,29 +387,16 @@ td { color: var(--text-2); }
   background: var(--elev); color: var(--text-2); cursor: pointer; font-size: var(--fs-2xs); }
 .rel-draft .rel-del { color: var(--red); }
 
-/* ---- 自进化中心（features/evolve*.js） ---- */
-.evo-subbar { margin-bottom: var(--sp); }
-.evo-sub[hidden] { display: none; }
-.evo-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-td .evo-actions { margin-top: 0; }
-.evo-actions .filter-input { margin-bottom: 0; width: auto; }
-.evo-reason { flex: 1 1 220px; }
-.evo-ver { width: 90px !important; }
-.evo-pager { display: flex; align-items: center; gap: 10px; justify-content: flex-end; padding-top: 10px; }
-.evo-msg { color: var(--amber); font-size: var(--fs-xs); padding-top: 8px; min-height: 1em; }
-.evo-diff { background: var(--bg); border: 1px solid var(--border-soft); border-radius: 8px; padding: 10px 12px; margin: 8px 0 14px;
-  font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-2); white-space: pre-wrap; word-break: break-word; max-height: 420px; overflow: auto; }
-.evo-sample { border-left: 2px solid var(--border); padding: 4px 0 4px 10px; margin-bottom: 10px; font-size: var(--fs-sm); color: var(--text-2); }
-.evo-ev { margin: 4px 0 0; padding-left: 18px; color: var(--muted); }
-.evo-sample-cell { max-width: 360px; white-space: pre-wrap; word-break: break-word; font-size: var(--fs-2xs); }
-.evo-err-cell { max-width: 320px; color: var(--red); font-size: var(--fs-2xs); white-space: pre-wrap; word-break: break-word; }
-.pill.evo-ok { color: var(--green); border-color: rgba(84,192,138,0.45); }
-.pill.evo-red { color: var(--red); border-color: rgba(232,97,95,0.45); }
-.pill.evo-warn { color: var(--amber); border-color: var(--amber-dim); }
-.evo-red-text { color: var(--red); }
-.evo-row-red td { background: rgba(232,97,95,0.05); }
-/* 执行器体检条（§11.2 D2） */
-.evo-health-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-sm); }
-.evo-health-hint { font-size: var(--fs-2xs); padding: 2px 0 0 4px; }
-.evo-health-cmd { flex: 1 1 360px; font-family: var(--font-mono); font-size: var(--fs-2xs); }
-.evo-sub .rel-form label { display: flex; flex-direction: column; gap: 6px; color: var(--muted); }
+/* ---- 框架问题页签（features/fw.js；拆分前住在自进化页内，样式随之改名 fw-） ---- */
+.fw-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fw-actions .filter-input { margin-bottom: 0; width: auto; }
+.fw-ver { width: 90px !important; }
+.fw-pager { display: flex; align-items: center; gap: 10px; justify-content: flex-end; padding-top: 10px; }
+.fw-msg { color: var(--amber); font-size: var(--fs-xs); padding-top: 8px; min-height: 1em; }
+.fw-sample-cell { max-width: 360px; white-space: pre-wrap; word-break: break-word; font-size: var(--fs-2xs); }
+.pill.fw-ok { color: var(--green); border-color: rgba(84,192,138,0.45); }
+.pill.fw-red { color: var(--red); border-color: rgba(232,97,95,0.45); }
+.fw-row-red td { background: rgba(232,97,95,0.05); }
+/* 「自进化」页签：挂载失败 / 未同主机共部署时的提示卡（页面本体样式由 cancong-evolve 的 ui/evo.css 提供） */
+.evolve-host-note { padding: 18px 4px; color: var(--muted); }
+.evolve-host-note a { color: var(--cyan); }

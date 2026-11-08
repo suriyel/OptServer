@@ -45,17 +45,14 @@ async function makeApp(t, opts) {
     adminUser: opts.adminUser,
     adminPassword: opts.adminPassword || 'admin123', // 显式传值走非告警分支，保持测试输出干净
     releasesDir: opts.releasesDir || path.join(dir, 'releases'), // 更新发布区隔离进临时目录
-    // 自进化中心：回环地址（桩蚕丛）/ 批目录隔离进临时目录 / 轮询间隔
-    cancongUrl: opts.cancongUrl || 'http://127.0.0.1:9',
-    evolveWorkDir: opts.evolveWorkDir || path.join(dir, 'evolve-work'),
-    evolvePollMs: opts.evolvePollMs || 20,
+    evolve: opts.evolve,   // OPS_EVOLVE 注入（服务发现）；缺省 undefined ⇒ 读 env
   });
   const { baseUrl } = await listenApp(t, handle.app);
   t.after(() => {
     handle.close();
     fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
-  return { baseUrl, db: handle.db, dao: handle.dao, runner: handle.runner };
+  return { baseUrl, db: handle.db, dao: handle.dao };
 }
 
 async function postJson(baseUrl, p, body) {

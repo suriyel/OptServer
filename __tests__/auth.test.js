@@ -57,9 +57,9 @@ function tempDb(t) {
 
 // ---- 迁移 / 约束 / 口令 / seed（dao 级）----
 
-test('迁移 v2：accounts/sessions 表存在（库已迁至最新 v5）', (t) => {
+test('迁移 v2：accounts/sessions 表存在（库已迁至最新 v7）', (t) => {
   const { db } = tempDb(t);
-  assert.strictEqual(db.pragma('user_version', { simple: true }), 6);
+  assert.strictEqual(db.pragma('user_version', { simple: true }), 7);
   const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name);
   assert.ok(tables.includes('accounts'), 'accounts 表应存在');
   assert.ok(tables.includes('sessions'), 'sessions 表应存在');

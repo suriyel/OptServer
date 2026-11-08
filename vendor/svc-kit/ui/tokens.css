@@ -1,0 +1,35 @@
+/* tokens.css —— 设计 token 单一来源（kit 共用：EvolveServer 真源，cancong-ops 经 kit:sync 拿副本）。
+   只放变量；各仓的基础样式留在各仓（cancong-ops public/css/base.css、EvolveServer public/css/base.css）。 */
+
+:root {
+  /* 层叠深色表面 */
+  --bg: #0c0e12;
+  --bg-2: #0f1217;
+  --panel: #14171d;
+  --panel-2: #1a1e26;
+  --elev: #1f2530;
+  --border: #262b34;
+  --border-soft: #1d222b;
+  /* 文字 */
+  --text: #dfe3e9;
+  --text-2: #aab0bb;
+  --muted: #7b828f;
+  --dim: #565d69;
+  /* 信号色 */
+  --amber: #f0a830;
+  --amber-dim: #c9892a;
+  --cyan: #38d6c4;
+  --green: #54c08a;
+  --red: #e8615f;
+  --orange: #ec8a3c;
+  --blue: #6aa6e0;
+  --violet: #a888e6;
+  /* 字体 */
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: 'Microsoft YaHei', 'PingFang SC', 'Segoe UI', system-ui, sans-serif;
+  /* 尺度 */
+  --fs-2xs: 11px; --fs-xs: 12px; --fs-sm: 13px; --fs-md: 14px; --fs-lg: 17px; --fs-xl: 30px;
+  --sp: 16px;
+  --radius: 12px;
+  --shadow: 0 1px 0 rgba(255,255,255,0.03) inset, 0 8px 24px -12px rgba(0,0,0,0.6);
+}

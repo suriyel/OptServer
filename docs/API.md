@@ -13,7 +13,8 @@
 - [查询接口 `GET /v1/stats/*`](#查询接口-get-v1stats)
 - [CSV 导出 `GET /v1/export/*`](#csv-导出-get-v1export)
 - [应用自动更新 `/v1/update/*`](#应用自动更新-v1update)
-- [蓝图自进化上报配置 `/v1/config/evolve`](#蓝图自进化上报配置-v1configevolve)
+- [服务发现 `GET /v1/discovery`](#服务发现-get-v1discovery)
+- [框架问题 `/v1/fw-issues`](#框架问题-v1fw-issues)
 - [错误响应](#错误响应)
 
 ---
@@ -82,9 +83,7 @@
 | `bp_run_start` | 工作流 run 新建 | `{ blueprintId, runId, tool }` | **只落 events 不聚合**(run 计数以终态为准，避免跨日双计) |
 | `bp_run_end` | 工作流 run 终态 | `{ blueprintId, runId, status, activeMs, haltReason?, interruptions, inputTokens, outputTokens }` | daily_user 按 `status` 落 `runs_*` + `run_active_ms`；**`daily_blueprint` 落 runs/active_ms/interruptions/token(工作流归因)** |
 | `failure_event` | 异常信号 | `{ source, kind, reason, tool, runId?, blueprintId? }` | `daily_user.failures+1`、`daily_fail(day,version,kind)+1`；**带 `blueprintId` 则 `daily_blueprint.failures+1`** |
-| `bp_patch_proposal` | 蓝图自进化：客户端整合器暂存一条补丁（仅白名单内蓝图） | `{ signature, blueprintId, bpVersionHash, nodeId, signal, diff, rationale, evidence[{kind,text}], runId, bytes, truncated }` | 样本类：只建当日行 |
-| `bp_patch_verdict` | 蓝图自进化：本机应用 / 拒绝一条补丁（按 change） | `{ signature, verdict:'applied'|'rejected', reason? }` | 样本类：只建当日行 |
-| `framework_issue` | 蓝图自进化：整合器汇总的框架墙（守卫拒绝 / spawn 故障等），不受白名单 | `{ signature, category, ruleOrCode, sample, nodeId, blueprintId, count, passedAfter }` | 样本类：只建当日行 |
+| `framework_issue` | 客户端整合器汇总的框架墙（守卫拒绝 / spawn 故障等），不受白名单；客户端同时发一份给自进化服务 | `{ signature, category, ruleOrCode, sample, nodeId, blueprintId, count, passedAfter }` | 样本类：只建当日行；同事务聚合进 `fw_issues` |
 | `artifact_review_reject` | 制品审批：一条评审意见被拒 | `{ aidHash, tool, kind, round, turns, reviewer, assessment, hadChange, rejectKind, quote, comment, reason, aiReply{…}, promptVer, genPromptRef, bytes, truncated }` | **只建当日行(计数 0)，不落任何聚合列** —— 见下方「样本类事件」 |
 
 **v0.2.0 新增 payload 字段**（客户端上报；缺失按 0 / 不归因，服务器 graceful）：
@@ -419,37 +418,30 @@ curl -X POST --data-binary @cancong-portable-0.0.4.exe \
 `{ from, to, variant, ok, attempts, reason? }`（`reason` 仅 `ok:false` 时携带：`sha_mismatch` · `sfx_exit_nonzero` · `sfx_timeout` · `version_mismatch` · `other_instance` · `parent_alive` · `download_failed` · `disk_full` · `unknown`）。
 ingest：`ok:false` 计入 `daily_fail`（kind = `update:<reason>`）→ 失败页 kind 分布可见；`ok:true` 只存原始（升级铺开进度看 installs 的 `appVersion` 分布即可）。「最近失败事件」列表同时列出 `update_apply{ok:false}`（响应行带 `type` 字段区分）。
 
-## 蓝图自进化上报配置 `/v1/config/evolve`
+## 服务发现 `GET /v1/discovery`
 
-客户端（蚕丛）据此决定哪些蓝图的补丁提案 / 裁决可以上报，以及 spawn 时的随机留出概率（TechDemos `docs/BLUEPRINT-SELF-EVOLUTION-DESIGN.md` §4.1）。存 meta 表单键 `evolve_config`（JSON），零 DDL。
+**免鉴权**（与 `POST /v1/events` 同档）。客户端据此找自进化服务，看板据此决定是否挂「自进化」页签（TechDemos `docs/EVOLVE-SERVICE-SPLIT-DESIGN.md` §4.2）。
+由 env `OPS_EVOLVE` 决定：
 
-- `GET /v1/config/evolve`（**免鉴权**，与 `POST /v1/events` 同档）→ `{ ok, uploadWhitelist:[bpId…], holdoutP, version }`；缺省 `[]` / `0.1` / `0`。客户端启动 + 每 6h 拉一次、缓存 24h，拉不到或过期一律按空白名单。
-- `PUT /v1/config/evolve`（鉴权内 + **requireAdmin**）body `{ uploadWhitelist, holdoutP?, windowHour?, market? }`：白名单 ≤500 个、每个匹配 `^[A-Za-z0-9_.-]{1,128}$`（去重）；`holdoutP ∈ [0, 0.5]`（缺省 0.1）；`windowHour` 0–23 整数（自进化中心每日批处理时刻）；`market` = `null` 或 `{name, url, ref?}`（推送目标市场，null = 同机蚕丛登记的第一个）；后两项省略则沿用旧值；非法 → 400。每次写入 `version+1`，记 `updatedAt / updatedBy`，并写一行审计。响应形状同 GET（**中心字段不外露给客户端**）。
+```
+{ "schemaVersion": 1, "services": { "evolve": { "port": 5901 } } }          ← OPS_EVOLVE=:5901（同主机相对）
+{ "schemaVersion": 1, "services": { "evolve": { "url": "http://h:5901" } } } ← OPS_EVOLVE=<绝对 URL>
+{ "schemaVersion": 1, "services": { "evolve": null } }                       ← 未设（明确没有）
+```
 
-上报整批可带 `Content-Encoding: gzip`（`express.json` 默认解压，1MB 上限按解压后计；`__tests__/evolve.test.js` 真 gzip POST 钉死）。
+`services` 只增键。旧版本服务没有这条路由（门禁先于 404，回 401）——客户端把任何非 200 当「从未拿到」。
+自进化样本（`bp_patch_proposal` / `bp_patch_verdict` / `evolve_run_summary`）不再进本服务，来了按未知类型计数。
 
-## 蓝图自进化中心 `/v1/evolve/*`
+## 框架问题 `/v1/fw-issues`
 
-看板「自进化」页签的后端（TechDemos `docs/BLUEPRINT-SELF-EVOLUTION-DESIGN.md` §5）。全部在门禁内；读口登录即可，写口 **requireAdmin** 且每次写 `evolve_audit`。响应 `{ ok, data }`；列表带 `limit`（≤200）/`offset` 分页，不回大列。
+门禁内；响应 `{ ok, data }`。
 
-样本来源：`POST /v1/events` 入库时，三类自进化事件与 `bp_run_end.nodes` 在同一事务里增量写中心表——已归属某簇的签名直接挂簇（**只加计数、不进队列、零 LLM**），新签名排队等每日窗口。
-
-| 方法 · 路径 | 权限 | 说明 |
+| 方法 路径 | 权限 | 说明 |
 |---|---|---|
-| `GET /v1/evolve/clusters?status&bp&limit&offset` | 登录 | 补丁簇列表（`status` ∈ open/adopted/rejected/parked/pushed）+ `basket:[{bpId,n}]`（各蓝图已采纳簇数） |
-| `GET /v1/evolve/clusters/:id` | 登录 | 簇详情：合成补丁原文（哨兵格式）、审查意见、最近 5 条证据样本 |
-| `POST /v1/evolve/clusters/:id/{adopt,reject,park,reopen}` | admin | 裁决；`reject` 须带 `{reason}`；非法迁移 409；`pushed` 终态不可再动 |
-| `GET /v1/evolve/fw-issues` | 登录 | 框架问题按次数排名（实例数、事后通过、修复 / 回归版本） |
-| `POST /v1/evolve/fw-issues/:sig/fixed` | admin | `{version:'x.y.z'}` 标「已修复于」（空串 = 清除）；之后 ≥ 该版本的客户端再报 ⇒ `regressedVersion` |
-| `GET /v1/evolve/holdout?from&to` | 登录 | 每「蓝图+节点」注入 vs 留出：n / 首轮通过率 / 平均打回 / 差值 95% CI；任一臂 <30 ⇒ `verdict:'insufficient'` |
-| `GET /v1/evolve/health` | 登录 | 执行器体检（TechDemos 设计 §11.2，30s 缓存）：`{at, overall, canRun, canPush, items:[{id, level:'ok'\|'warn'\|'red'\|'na', msg, hint?, cmd?}]}`；项 = reachable / standalone / contract（13 个 partner 接口在线齐全）/ evolveOff（BP_EVOLVE 已关，未关为黄）/ market / version（对比本 feed 上同架构 Linux 包，落后为黄并给升级命令，**不代执行**）/ tool（上次起 run 回 503） |
-| `POST /v1/evolve/health/refresh` | admin | 立即重新体检 |
-| `GET /v1/evolve/queue` | 登录 | 批次列表 + 各蓝图排队 / 失败样本数 + `running` |
-| `POST /v1/evolve/queue/run` | admin | 立即处理（202；正在跑 ⇒ 409 busy；体检 `canRun=false` ⇒ 409 `executor_unhealthy` + `items`）。体检红时每日窗口也不开跑（记一条失败批次，样本不烧重试）；起 run 回 503 ⇒ 本批样本原样退回、不计重试 |
-| `POST /v1/evolve/queue/requeue` | admin | `{bpId?}` 失败样本重新排队 |
-| `POST /v1/evolve/push/:bpId` | admin | 篮子推成市场分支：取市场最新版装成副本 `<bpId>-evo` → 按节点套全部采纳簇 → 一次 `publish {asId:bpId, version: 市场版+1, message}`；回 `{branch, version, pushed, skipped}`。打不上的簇退回重新合成；不在市场 ⇒ 409 `not-in-market`；篮子空 ⇒ 409 `empty-basket`；体检 `canPush=false` ⇒ 409 `executor_unhealthy`；蚕丛侧失败 ⇒ 502 |
-| `GET /v1/evolve/export/:bpId` | admin | 导出 `git apply` 补丁（`text/x-patch`，头部注释附提交说明）；不改簇状态；体检 `canPush=false` ⇒ 409 |
-| `GET /v1/evolve/config` · `GET /v1/evolve/audit` | admin | 完整配置（含窗口 / 市场）+ 审计分页 · 单看审计 |
+| `GET /v1/fw-issues?limit&offset` | 登录 | 签名排名（回归置顶）：次数 / 报告数 / 机器数（`fw_issue_machines` 去重）/ 事后通过 / 修复与回归版本 |
+| `POST /v1/fw-issues/:sig/fixed` | admin | `{version:'x.y.z'}` 标「已修复于」（空串 = 清除）；之后 ≥ 该版本的客户端再报 ⇒ `regressedVersion`；非法版本 400、无此签名 404 |
+
+上报整批可带 `Content-Encoding: gzip`（`express.json` 默认解压，1MB 上限按解压后计）。
 
 ## 错误响应
 

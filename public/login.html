@@ -75,6 +75,18 @@
     <button type="submit" id="login-btn">登 录</button>
   </form>
   <script>
+    /* safeNext:begin —— 登录后回跳目标（TechDemos docs/EVOLVE-SERVICE-SPLIT-DESIGN.md §4.3）：
+       cancong-evolve（ops 鉴权）未登录时把人送到这里并带 ?next=<它的页面>。只认与本页**同主机名**、http/https 的地址
+       （同主机不同端口 = 共部署的自进化服务），其余一律回 '/'——防开放重定向被拿去钓鱼。__tests__/split.test.js 抽出本函数测。 */
+    function safeNext(raw, loc) {
+      if (!raw) return '/';
+      try {
+        const u = new URL(raw, loc.href);
+        if ((u.protocol === 'http:' || u.protocol === 'https:') && u.hostname === loc.hostname) return u.href;
+      } catch (_) { /* 非法 URL */ }
+      return '/';
+    }
+    /* safeNext:end */
     const form = document.getElementById('login-form');
     const errEl = document.getElementById('login-error');
     const btn = document.getElementById('login-btn');
@@ -93,7 +105,9 @@
         });
         const body = await res.json().catch(() => null);
         if (res.ok && body && body.ok) {
-          location.href = '/';
+          // 片段不会发到服务端（next 里没有），但 302 时浏览器把它带到了本页 ⇒ 回跳时补回去（#queue 等子页）
+          const dest = safeNext(new URLSearchParams(location.search).get('next'), location);
+          location.href = dest.includes('#') || !location.hash ? dest : dest + location.hash;
           return;
         }
         errEl.textContent = (body && body.error === 'invalid credentials') ? '用户名或密码错误'

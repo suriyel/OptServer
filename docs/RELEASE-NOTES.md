@@ -8,6 +8,15 @@
 
 ### 新增能力
 
+**蓝图自进化中心拆为独立服务 cancong-evolve（三仓同批；TechDemos `docs/EVOLVE-SERVICE-SPLIT-DESIGN.md`）**
+
+- 自进化中心（补丁簇 / 队列 / 篮子推送 / 留出对照 / 配置 / 中心工作流）整体搬到新仓 **EvolveServer**（`cancong-evolve`:5901，可交给用户自部署）。本服务保留遥测、升级 feed 与**框架问题**。
+- 新顶层页签「**框架问题**」（含「已修复于 vX / 回归」，接口 `/v1/fw-issues`）；「**自进化**」页签改为挂载器：经新接口 `GET /v1/discovery`（免鉴权，env `OPS_EVOLVE`）拿到同主机 cancong-evolve 的端口，跨源加载它的页面；未共部署时页签隐藏。登录页支持 `?next=` 回跳（只认同主机名）。
+- schema **v7**：删五张自进化表与 `evolve_config`，保留 `fw_issues`，机器数改由新表 `fw_issue_machines` 去重（迁移时从旧样本回填）。**升级前备份库**（迁移只进不退，`docs/DEPLOYMENT.md` §8.2）。
+- 删除 `/v1/config/evolve`、`/v1/evolve/*`、`lib/center/*`、`center-blueprint/` 与 env `OPS_CANCONG_URL` / `OPS_CANCONG_TOOL` / `OPS_EVOLVE_WORK_DIR`；自进化样本不再入库（按未知类型计数）。
+- 鉴权与前端核心改用 **kit**（`vendor/svc-kit/`，真源 EvolveServer/kit，`npm run kit:sync`；`__tests__/kit-parity.test.js` 逐字节对拍）。Cookie 名 / env / 接口与行为不变；`/v1/auth/me` 多带一个 `provider` 字段。
+- 测试 187 → 163（自进化用例随代码迁到 EvolveServer；新增 `split.test.js` 6 条：v6 老库升 v7 回填、框架问题回归、自进化样本不入库、服务发现三取值与白名单、登录回跳防开放重定向；`kit-parity` 1 条）。
+
 **蓝图自进化中心 · 对接蚕丛独立版（两仓同批，TechDemos 自进化批 5 / 设计 §11）：契约对拍、执行器体检、feed 挂 Linux 包**
 
 - **契约对拍**：本仓经回环调的 13 个蚕丛接口登记在 `lib/center/partner-ops.js`，蚕丛那边对应标成 `x-stability: partner`（只许加可选字段，有门禁）。新测试 `__tests__/cancong-contract.test.js` 读兄弟仓 TechDemos 的 `api-spec/dist/openapi.json`，校验桩响应与本仓请求逐字段落在规格里（迷你校验器 `__tests__/_openapi-mini.js`，零依赖、严格键），并要求本表 ≡ 规格 partner 集合 ≡ 用例实际调用集合；找不到 TechDemos ⇒ skip 并写明「未真对拍」。桩蚕丛从 `evolve-center.test.js` 挪到共享夹具 `__tests__/_evolve-fixtures.js`，契约测试校验的就是单测在用的那份桩。
