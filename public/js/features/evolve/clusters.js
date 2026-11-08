@@ -34,7 +34,8 @@ const review = (c) => {
 export function init(el, ctx) {
   root = el; isAdmin = ctx.isAdmin;
   el.innerHTML = `
-    <div class="panel" id="evc-basket-panel"><div class="panel-head"><h3>待推送篮子</h3></div><div id="evc-basket"></div></div>
+    <div class="panel" id="evc-basket-panel"><div class="panel-head"><h3>待推送篮子</h3></div><div id="evc-basket"></div>
+      <div class="evo-msg" id="evc-push-msg"></div></div>
     <div class="panel"><div class="panel-head"><h3>补丁簇</h3>
       <div class="metric-seg" id="evc-filter">${FILTERS.map((f) => `<button data-f="${f.key}">${f.label}</button>`).join('')}</div></div>
       <div id="evc-list"></div><div class="evo-pager" id="evc-pager"></div></div>
@@ -63,6 +64,7 @@ export async function refresh() {
   } catch (e) { err.textContent = '加载失败：' + e.message; throw e; }
 }
 
+// 推送结果行 #evc-push-msg 放在静态面板里：推完 refresh 篮子清空重绘，结果不能跟着被抹掉
 function renderBasket(rows) {
   const box = root.querySelector('#evc-basket');
   if (!rows.length) { box.innerHTML = '<div class="empty">篮子是空的——在下面采纳补丁簇后，按工作流一次推送</div>'; return; }
@@ -70,7 +72,7 @@ function renderBasket(rows) {
     + rows.map((r) => `<tr><td class="mono">${escapeHtml(r.bpId)}</td><td class="num">${fmtInt(r.n)}</td><td><div class="evo-actions">`
       + (isAdmin ? `<button class="export-btn" data-push="${escapeHtml(r.bpId)}">推送到市场</button>`
         + `<button class="export-btn" data-export="${escapeHtml(r.bpId)}">导出补丁</button>` : '<span class="muted">仅管理员可推送</span>')
-      + '</div></td></tr>').join('') + '</tbody></table><div class="evo-msg" id="evc-push-msg"></div>';
+      + '</div></td></tr>').join('') + '</tbody></table>';
 }
 
 function renderList(rows, total) {

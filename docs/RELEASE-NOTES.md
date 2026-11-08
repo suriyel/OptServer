@@ -15,7 +15,7 @@
 - 每日窗口（默认 02:00）或「立即处理」：经本机回环让同机蚕丛无头跑中心工作流 `center-blueprint/evolve-center/`（聚类 → 合成 → 独立审查），输入 / 输出走批目录文件；失败的批次自动重排一次，再败标红。合成补丁入库前确定性复核能否逐字套上。
 - 「推送到市场」：取市场最新版装成副本、把篮子里的补丁簇按节点套上，一次推成 `publish/<工作流>-<版本+1>` 分支，提交说明逐簇写证据与审查结论；在新版上打不上的簇自动退回重新合成。工作流不在目标市场时可「导出补丁」（`git apply`）。
 - 部署：新增 env `OPS_CANCONG_URL` / `OPS_CANCONG_TOOL` / `OPS_EVOLVE_WORK_DIR`；中心机的蚕丛独立版须以 `--env BP_EVOLVE=0` 安装（见 `docs/DEPLOYMENT.md` §8.1）。
-- 测试 155 → 169（`__tests__/evolve-center.test.js`：桩蚕丛下的三颗牙齿——同签名零排队、已裁决簇不出补丁、多簇一分支版本 +1——以及失败重试、锚点退回、导出可 `git apply`、鉴权与审计）；两仓真闭环在 TechDemos `st/tests/evolve-center-push.spec.ts`。
+- 测试 155 → 169（`__tests__/evolve-center.test.js`：桩蚕丛下的三颗牙齿——同签名零排队、已裁决簇不出补丁、多簇一分支版本 +1——以及失败重试、锚点退回、导出可 `git apply`、鉴权与审计）；两仓真闭环在 TechDemos `st/tests/evolve-center-push.spec.ts`；Linux 中心机部署演练（两个系统用户、看板推送 / 真模型立即处理）在 TechDemos `st/tests/evolve-center-node.spec.ts`。
 
 **蓝图自进化上报（两仓同批，TechDemos 自进化批 3）：三类样本事件 + 上报配置接口 + gzip 入库钉死**
 

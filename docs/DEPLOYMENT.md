@@ -171,6 +171,7 @@ curl "http://localhost:5900/v1/installs"
 - 两个服务若不是同一系统用户：`OPS_EVOLVE_WORK_DIR` 的父目录要让蚕丛进程能进（批目录本身建时 0777）；中心工作流目录 `center-blueprint/evolve-center/` 要让蚕丛进程能读（处理前经回环 `import {type:'local'}` 装进蚕丛，版本不同自动重装）。
 - **每日窗口**：进程内调度，默认本地 **02:00**（错开 03:00 夜间 job），在配置页改，下一轮生效；看板「立即处理」随时手动触发。失败的批次样本退回重排，第二次再败标红，在队列页「重新排队」。
 - 目标市场留空 = 蚕丛登记的第一个市场（首启即官方市场，官方仓分支是 `master`）；手填时 ref 要填对。
+- 以上步骤已在 Ubuntu 24.04 上按本文 §5 真装演练过（本服务 `User=ops`、蚕丛 `User=<登录用户>`，默认批目录 `/var/lib/cancong-ops/evolve-work` 即可，无需额外放权），回归用例 = TechDemos `st/tests/evolve-center-node.spec.ts`（`npm run st:standalone`）。
 
 ## 9. 备份
 
