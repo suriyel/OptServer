@@ -21,9 +21,18 @@
 import { escapeHtml, fmtLocalFromIso } from '../core/fmt.js';
 
 // 两个 exe 必需；Linux 独立版包可选（有就一起发，给中心机执行器体检提示升级用，见 lib/update.js 头注释）
-const REQUIRED = ['slim', 'with-linux'];
-const VARIANTS = [...REQUIRED, 'linux-x64', 'linux-arm64'];
+// 产品维度（TechDemos docs/EVOLVE-SERVICE-SPLIT-DESIGN.md §5.6）：#release = 蚕丛客户端；#release/evolve = 自进化服务
+// cancong-evolve 的 Linux 预构建包（独立版本号 / 发布区，不进蚕丛 manifest）。切换产品整页重载，页面状态天然清零。
+const PRODUCTS = {
+  cancong: { label: '蚕丛客户端', required: ['slim', 'with-linux'], optional: ['linux-x64', 'linux-arm64'] },
+  evolve: { label: '自进化服务（Linux 包）', required: ['linux-x64'], optional: ['linux-arm64'] },
+};
+let PRODUCT = 'cancong';
+let REQUIRED = PRODUCTS.cancong.required;
+let VARIANTS = [...REQUIRED, ...PRODUCTS.cancong.optional];
 const ACCEPT = { slim: '.exe', 'with-linux': '.exe', 'linux-x64': '.gz,.tar.gz', 'linux-arm64': '.gz,.tar.gz' };
+/** @param {string} p */
+const withProduct = (p) => (PRODUCT === 'cancong' ? p : p + (p.includes('?') ? '&' : '?') + 'product=' + PRODUCT);
 const optional = (va) => !REQUIRED.includes(va);
 const VER_RE = /^\d+\.\d+\.\d+$/;
 const VER_HINT = '⚠ 请先填合法版本号（三段数字，如 0.0.4）';
@@ -44,7 +53,7 @@ async function call(method, path, body) {
     opts.headers = { 'Content-Type': 'application/json' };
     opts.body = JSON.stringify(body);
   }
-  const res = await fetch('/v1' + path, opts);
+  const res = await fetch('/v1' + withProduct(path), opts);
   if (res.status === 401) { location.href = '/login.html'; throw new Error('unauthorized'); }
   const j = await res.json().catch(() => null);
   if (!res.ok || !j || j.ok !== true) throw new Error((j && j.error) || ('HTTP ' + res.status));
@@ -85,9 +94,15 @@ function variantRow(va) {
     </div>`;
 }
 
-export function init(el) {
+/** @param {HTMLElement} el @param {string} [sub] 产品子路由（evolve） */
+export function init(el, sub) {
   root = el;
+  PRODUCT = sub === 'evolve' ? 'evolve' : 'cancong';
+  REQUIRED = PRODUCTS[PRODUCT].required;
+  VARIANTS = [...REQUIRED, ...PRODUCTS[PRODUCT].optional];
   el.innerHTML = `
+    <div class="metric-seg rel-products">${Object.entries(PRODUCTS).map(([k, v]) =>
+      `<a class="${k === PRODUCT ? 'on' : ''}" href="#release${k === 'cancong' ? '' : '/' + k}">${v.label}</a>`).join('')}</div>
     <div class="panel">
       <h3>当前已发布</h3>
       <div id="rel-current"></div>
@@ -98,7 +113,7 @@ export function init(el) {
         <div class="rel-verline">
           <label>版本 <input id="rel-version" placeholder="如 0.0.4" size="10"></label>
           <button id="rel-unlock" hidden>换版本</button>
-          <span class="muted">先填版本号，再选包上传——两个变体必须同属一个版本</span>
+          <span class="muted">先填版本号，再选包上传——各变体必须同属一个版本</span>
         </div>
         ${VARIANTS.map(variantRow).join('')}
         <label>更新说明<br><textarea id="rel-notes" rows="4" cols="60" placeholder="用户可见（客户端「查看说明」）。提醒：预置工作流不随版本更新到存量用户，如有新增请在此说明"></textarea></label>
@@ -131,6 +146,12 @@ export function init(el) {
   // 补跑挂在 change（失焦/回车）上，不能挂 input——理由见 resumePendingUploads 的注释
   verInput().addEventListener('change', resumePendingUploads);
   renderDraftStatus(); // drafts 还没回来也要先把「发布」按住（服务端拒绝的文案会被误读成包丢了）
+}
+
+// 切产品：整页重载（上传中 / 锁版本 / 代际守卫这些状态都按单产品写的，重载最干净）
+/** @param {string} sub */
+export function navigate(sub) {
+  if ((sub === 'evolve' ? 'evolve' : 'cancong') !== PRODUCT) location.reload();
 }
 
 export async function refresh() {
@@ -259,7 +280,7 @@ function gateReason(missing, busy, ver) {
     if (other) return `${va}（它在草稿 ${other} 里，当前填的是 ${ver}）`;
     return `${va}（请选包上传）`;
   };
-  return `两个变体齐备才能发布，还差：${missing.map(why).join('；')}` + note;
+  return `必需变体（${REQUIRED.join('、')}）齐备才能发布，还差：${missing.map(why).join('；')}` + note;
 }
 
 // 版本号「落定」时，把之前因缺版本号被搁置的包补传上去。缺了这一步，先选包的变体永远停在
@@ -322,7 +343,7 @@ function upload(variant) {
   delete rowErr[variant];
   setMsg('');
   const xhr = new XMLHttpRequest();
-  const url = `/v1/update/upload?variant=${encodeURIComponent(variant)}&version=${encodeURIComponent(ver)}&filename=${encodeURIComponent(file.name)}`;
+  const url = withProduct(`/v1/update/upload?variant=${encodeURIComponent(variant)}&version=${encodeURIComponent(ver)}&filename=${encodeURIComponent(file.name)}`);
   xhr.open('POST', url);
   xhr.upload.onprogress = (e) => {
     uploading[variant] = e.lengthComputable ? `⏳ 上传中 ${Math.floor(e.loaded / e.total * 100)}%` : '⏳ 上传中…';

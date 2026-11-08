@@ -230,6 +230,11 @@ main { position: relative; z-index: 1; max-width: 1280px; margin: 0 auto; paddin
 }
 .metric-seg button:hover { color: var(--text-2); }
 .metric-seg button.on { background: var(--elev); color: var(--amber); box-shadow: 0 0 0 1px var(--border) inset; }
+/* 版本发布页的产品切换（链接形态的分段控件：#release / #release/evolve） */
+.rel-products { margin-bottom: var(--sp); }
+.rel-products a { padding: 4px 10px; border-radius: 6px; color: var(--muted); text-decoration: none; font-size: var(--fs-xs); }
+.rel-products a:hover { color: var(--text-2); }
+.rel-products a.on { background: var(--elev); color: var(--amber); box-shadow: 0 0 0 1px var(--border) inset; }
 
 /* ---- 导出 CSV 按钮（面板头右侧） ---- */
 .export-btn {

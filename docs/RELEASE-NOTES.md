@@ -15,7 +15,8 @@
 - schema **v7**：删五张自进化表与 `evolve_config`，保留 `fw_issues`，机器数改由新表 `fw_issue_machines` 去重（迁移时从旧样本回填）。**升级前备份库**（迁移只进不退，`docs/DEPLOYMENT.md` §8.2）。
 - 删除 `/v1/config/evolve`、`/v1/evolve/*`、`lib/center/*`、`center-blueprint/` 与 env `OPS_CANCONG_URL` / `OPS_CANCONG_TOOL` / `OPS_EVOLVE_WORK_DIR`；自进化样本不再入库（按未知类型计数）。
 - 鉴权与前端核心改用 **kit**（`vendor/svc-kit/`，真源 EvolveServer/kit，`npm run kit:sync`；`__tests__/kit-parity.test.js` 逐字节对拍）。Cookie 名 / env / 接口与行为不变；`/v1/auth/me` 多带一个 `provider` 字段。
-- 测试 187 → 163（自进化用例随代码迁到 EvolveServer；新增 `split.test.js` 6 条：v6 老库升 v7 回填、框架问题回归、自进化样本不入库、服务发现三取值与白名单、登录回跳防开放重定向；`kit-parity` 1 条）。
+- 发布面加**产品维度** `?product=`（缺省 `cancong` 不变）：`evolve` 发自进化服务的 Linux 预构建包，独立版本号与发布区 `releases/evolve/`，不进蚕丛 manifest；「版本发布」页顶部切换产品（`#release/evolve`）。
+- 测试 187 → 165（自进化用例随代码迁到 EvolveServer；新增 `update-product.test.js` 2 条；新增 `split.test.js` 6 条：v6 老库升 v7 回填、框架问题回归、自进化样本不入库、服务发现三取值与白名单、登录回跳防开放重定向；`kit-parity` 1 条）。
 
 **蓝图自进化中心 · 对接蚕丛独立版（两仓同批，TechDemos 自进化批 5 / 设计 §11）：契约对拍、执行器体检、feed 挂 Linux 包**
 

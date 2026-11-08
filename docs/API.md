@@ -366,6 +366,10 @@ GET /healthz → 200 { "ok": true }
 客户端设计权威源：TechDemos `docs/APP-AUTO-UPDATE-DESIGN.md`（§5 契约、§7 服务端设计）。
 存储在文件系统 `releases/`（`OPS_RELEASES_DIR` 可改），清单落 `index.json`——与遥测库解耦，救急可直接 `cat`/手改。
 
+**产品维度** `?product=`（缺省 `cancong`，现有客户端 / 看板零感知；TechDemos `docs/EVOLVE-SERVICE-SPLIT-DESIGN.md` §5.6）：所有 `/v1/update/*` 路由都可带 `product`。
+`evolve` = 自进化服务 cancong-evolve 的 Linux 预构建包：**独立的版本号 / `index.json` / 发布区**（`releases/evolve/`），变体 `linux-x64`（必需）/ `linux-arm64`（可选），
+规范名 `cancong-evolve-<ver>-linux-<arch>.tar.gz`，不派生解压道，不进蚕丛的 manifest。未知产品 → 400。看板「版本发布」页顶部切换（`#release/evolve`）。
+
 ### 免鉴权（与 `POST /v1/events` 同档：客户端没有账号，内网即信任）
 
 **`GET /v1/update/latest[?current=<本机版本>]`** — 有已发布版本 → `200`：
