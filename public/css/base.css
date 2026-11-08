@@ -437,4 +437,8 @@ td .evo-actions { margin-top: 0; }
 .pill.evo-warn { color: var(--amber); border-color: var(--amber-dim); }
 .evo-red-text { color: var(--red); }
 .evo-row-red td { background: rgba(232,97,95,0.05); }
+/* 执行器体检条（§11.2 D2） */
+.evo-health-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-sm); }
+.evo-health-hint { font-size: var(--fs-2xs); padding: 2px 0 0 4px; }
+.evo-health-cmd { flex: 1 1 360px; font-family: var(--font-mono); font-size: var(--fs-2xs); }
 .evo-sub .rel-form label { display: flex; flex-direction: column; gap: 6px; color: var(--muted); }

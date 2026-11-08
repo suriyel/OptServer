@@ -395,9 +395,9 @@ GET /healthz → 200 { "ok": true }
 
 | 端点 | 说明 |
 |---|---|
-| `POST /v1/update/upload?variant=slim\|with-linux&version=<ver>[&filename=]` | body 为 raw octet-stream；边写边算 sha256 落 `staging/<ver>/<variant>.exe` + 同名 `.json` 边车；同 (ver,variant) 重传直接覆盖（幂等） |
+| `POST /v1/update/upload?variant=slim\|with-linux\|linux-x64\|linux-arm64&version=<ver>[&filename=]` | body 为 raw octet-stream；边写边算 sha256 落 `staging/<ver>/<variant>.exe`（Linux 变体为 `.tar.gz`）+ 同名 `.json` 边车；同 (ver,variant) 重传直接覆盖（幂等） |
 | `GET /v1/update/drafts` | 草稿区各版本各变体就位情况 + 当前已发布 + 可回滚历史（登录即可读，非 admin 也可看） |
-| `POST /v1/update/publish` | body `{ version, notes, minSupported }`。服务端自检：①两变体齐备 ②版本合法三段数字且高于当前已发布 ③大小/sha256 复算与边车一致 ④地板为空或合法且 ≤ version ⑤边车 `originalName` 里内嵌的三段版本号（抽得到才查）与声明 `version` 数值相等。通过则 rename 进 `published/<ver>/`（文件名归一为无空格 slug）并重写 `index.json` |
+| `POST /v1/update/publish` | body `{ version, notes, minSupported }`。服务端自检：①`slim` 与 `with-linux` 两个 exe 齐备（Linux 独立版包 `linux-x64` / `linux-arm64` **可选**，在就一起发）②版本合法三段数字且高于当前已发布 ③大小/sha256 复算与边车一致 ④地板为空或合法且 ≤ version ⑤边车 `originalName` 里内嵌的三段版本号（抽得到才查）与声明 `version` 数值相等 ⑥Linux 包文件头须为 gzip、原名带架构时须与变体一致。Linux 包规范名 `cancong-server-<ver>-linux-<arch>.tar.gz`，不派生解压道；manifest `packages` 只含在场的变体（Windows 客户端只读自己的 key）。通过则 rename 进 `published/<ver>/`（文件名归一为无空格 slug）并重写 `index.json` |
 | `POST /v1/update/unpublish` | 下架当前版本（删其文件），回退到上一个文件仍在的已发布版本；没有则清空（`/latest` 回 204） |
 | `DELETE /v1/update/draft/:version/:variant` | 删草稿 |
 
@@ -442,11 +442,13 @@ ingest：`ok:false` 计入 `daily_fail`（kind = `update:<reason>`）→ 失败�
 | `GET /v1/evolve/fw-issues` | 登录 | 框架问题按次数排名（实例数、事后通过、修复 / 回归版本） |
 | `POST /v1/evolve/fw-issues/:sig/fixed` | admin | `{version:'x.y.z'}` 标「已修复于」（空串 = 清除）；之后 ≥ 该版本的客户端再报 ⇒ `regressedVersion` |
 | `GET /v1/evolve/holdout?from&to` | 登录 | 每「蓝图+节点」注入 vs 留出：n / 首轮通过率 / 平均打回 / 差值 95% CI；任一臂 <30 ⇒ `verdict:'insufficient'` |
+| `GET /v1/evolve/health` | 登录 | 执行器体检（TechDemos 设计 §11.2，30s 缓存）：`{at, overall, canRun, canPush, items:[{id, level:'ok'\|'warn'\|'red'\|'na', msg, hint?, cmd?}]}`；项 = reachable / standalone / contract（13 个 partner 接口在线齐全）/ evolveOff（BP_EVOLVE 已关，未关为黄）/ market / version（对比本 feed 上同架构 Linux 包，落后为黄并给升级命令，**不代执行**）/ tool（上次起 run 回 503） |
+| `POST /v1/evolve/health/refresh` | admin | 立即重新体检 |
 | `GET /v1/evolve/queue` | 登录 | 批次列表 + 各蓝图排队 / 失败样本数 + `running` |
-| `POST /v1/evolve/queue/run` | admin | 立即处理（202；正在跑 ⇒ 409 busy） |
+| `POST /v1/evolve/queue/run` | admin | 立即处理（202；正在跑 ⇒ 409 busy；体检 `canRun=false` ⇒ 409 `executor_unhealthy` + `items`）。体检红时每日窗口也不开跑（记一条失败批次，样本不烧重试）；起 run 回 503 ⇒ 本批样本原样退回、不计重试 |
 | `POST /v1/evolve/queue/requeue` | admin | `{bpId?}` 失败样本重新排队 |
-| `POST /v1/evolve/push/:bpId` | admin | 篮子推成市场分支：取市场最新版装成副本 `<bpId>-evo` → 按节点套全部采纳簇 → 一次 `publish {asId:bpId, version: 市场版+1, message}`；回 `{branch, version, pushed, skipped}`。打不上的簇退回重新合成；不在市场 ⇒ 409 `not-in-market`；篮子空 ⇒ 409 `empty-basket`；蚕丛侧失败 ⇒ 502 |
-| `GET /v1/evolve/export/:bpId` | admin | 导出 `git apply` 补丁（`text/x-patch`，头部注释附提交说明）；不改簇状态 |
+| `POST /v1/evolve/push/:bpId` | admin | 篮子推成市场分支：取市场最新版装成副本 `<bpId>-evo` → 按节点套全部采纳簇 → 一次 `publish {asId:bpId, version: 市场版+1, message}`；回 `{branch, version, pushed, skipped}`。打不上的簇退回重新合成；不在市场 ⇒ 409 `not-in-market`；篮子空 ⇒ 409 `empty-basket`；体检 `canPush=false` ⇒ 409 `executor_unhealthy`；蚕丛侧失败 ⇒ 502 |
+| `GET /v1/evolve/export/:bpId` | admin | 导出 `git apply` 补丁（`text/x-patch`，头部注释附提交说明）；不改簇状态；体检 `canPush=false` ⇒ 409 |
 | `GET /v1/evolve/config` · `GET /v1/evolve/audit` | admin | 完整配置（含窗口 / 市场）+ 审计分页 · 单看审计 |
 
 ## 错误响应

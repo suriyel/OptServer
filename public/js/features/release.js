@@ -20,7 +20,11 @@
 
 import { escapeHtml, fmtLocalFromIso } from '../core/fmt.js';
 
-const VARIANTS = ['slim', 'with-linux'];
+// 两个 exe 必需；Linux 独立版包可选（有就一起发，给中心机执行器体检提示升级用，见 lib/update.js 头注释）
+const REQUIRED = ['slim', 'with-linux'];
+const VARIANTS = [...REQUIRED, 'linux-x64', 'linux-arm64'];
+const ACCEPT = { slim: '.exe', 'with-linux': '.exe', 'linux-x64': '.gz,.tar.gz', 'linux-arm64': '.gz,.tar.gz' };
+const optional = (va) => !REQUIRED.includes(va);
 const VER_RE = /^\d+\.\d+\.\d+$/;
 const VER_HINT = '⚠ 请先填合法版本号（三段数字，如 0.0.4）';
 
@@ -74,8 +78,8 @@ const elsewhereWith = (va, ver) => {
 function variantRow(va) {
   return `
     <div class="rel-variant" data-variant="${va}">
-      <span class="rel-vname">${va}</span>
-      <input type="file" id="rel-file-${va}" accept=".exe">
+      <span class="rel-vname">${va}${optional(va) ? ' <span class="muted">可选</span>' : ''}</span>
+      <input type="file" id="rel-file-${va}" accept="${ACCEPT[va]}">
       <button class="rel-upload" data-variant="${va}">上传</button>
       <span class="rel-status" id="rel-status-${va}"></span>
     </div>`;
@@ -181,7 +185,7 @@ function renderDrafts() {
     const ver = escapeHtml(d.version);
     const cells = VARIANTS.map((va) => {
       const sc = d.variants[va];
-      if (!sc) return `<span class="rel-draft-va rel-draft-miss">${va} 缺</span>`;
+      if (!sc) return optional(va) ? '' : `<span class="rel-draft-va rel-draft-miss">${va} 缺</span>`;
       return `<span class="rel-draft-va">${va}
         <span class="muted">${fmtMB(sc.size)} · sha ${escapeHtml(String(sc.sha256).slice(0, 8))}…</span>
         <button class="rel-del" data-ver="${ver}" data-va="${va}">删除</button></span>`;
@@ -199,8 +203,8 @@ function renderDraftStatus() {
   for (const va of VARIANTS) {
     const el = root.querySelector('#rel-status-' + va);
     const sc = draft && draft.variants[va];
-    if (sc) ready++;                       // 就位与否只看服务端草稿区，本地选没选文件不算数
-    else missing.push(va);
+    if (sc) { if (!optional(va)) ready++; } // 就位与否只看服务端草稿区，本地选没选文件不算数
+    else if (!optional(va)) missing.push(va);   // Linux 包可选：缺了不挡发布
     // 「已选待传」是待办不是空态：以前它和 ✓ 完成态、「未上传」空态共用一个 --muted 灰，
     // 三种语义看着一模一样，补填版本号后忘了点「上传」根本看不出来。rel-todo 把它拎成信号色。
     el.classList.remove('rel-err', 'rel-todo');
@@ -227,14 +231,14 @@ function renderDraftStatus() {
       const other = elsewhereWith(va, ver);
       el.textContent = other
         ? `⚠ 版本 ${ver} 下没有此包——它在草稿 ${other} 里（点那行「填入版本」切过去，或重新上传）`
-        : '未上传';
+        : (optional(va) ? '未上传（可选）' : '未上传');
       if (other) el.classList.add('rel-todo');
     }
   }
   // 两包齐备才可点（客户端提示；真正把关在服务端自检）。有变体在传时也按住——
   // 发布会 rmSync 掉整个 staging/<ver>/，在途上传的 rename 会扑空。
   const busy = VARIANTS.some((va) => uploading[va]);
-  /** @type {HTMLButtonElement} */ (root.querySelector('#rel-publish')).disabled = ready < 2 || busy;
+  /** @type {HTMLButtonElement} */ (root.querySelector('#rel-publish')).disabled = ready < REQUIRED.length || busy;
   verInput().readOnly = verLocked;
   /** @type {HTMLElement} */ (root.querySelector('#rel-unlock')).hidden = !verLocked;
   setGate(gateReason(missing, busy, ver));

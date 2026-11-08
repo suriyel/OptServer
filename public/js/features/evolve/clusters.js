@@ -49,6 +49,9 @@ export function init(el, ctx) {
   el.addEventListener('click', onClick);
 }
 
+/** 执行器体检（§11.2 D2）：canPush=false ⇒ 推送 / 导出置灰，原因写在篮子下 */
+let pushBlock = '';
+
 export async function refresh() {
   const err = root.querySelector('#evc-error'); err.textContent = '';
   root.querySelectorAll('#evc-filter button').forEach((b) => b.classList.toggle('on', /** @type {HTMLElement} */ (b).dataset.f === filter));
@@ -56,8 +59,9 @@ export async function refresh() {
   try {
     const q = { limit: String(PAGE), offset: String(offset) };
     if (filter) q.status = filter;
-    const d = await getStats('/evolve/clusters', q);
+    const [d, h] = await Promise.all([getStats('/evolve/clusters', q), getStats('/evolve/health').catch(() => null)]);
     if (guard.stale(g)) return;
+    pushBlock = h && !h.canPush ? h.items.filter((x) => x.level === 'red').map((x) => x.msg).join('；') : '';
     renderBasket(d.basket || []);
     renderList(d.rows || [], d.total || 0);
     if (openId != null) await renderDetail(openId);
@@ -70,9 +74,10 @@ function renderBasket(rows) {
   if (!rows.length) { box.innerHTML = '<div class="empty">篮子是空的——在下面采纳补丁簇后，按工作流一次推送</div>'; return; }
   box.innerHTML = '<table><thead><tr><th>工作流</th><th class="num">已采纳簇</th><th></th></tr></thead><tbody>'
     + rows.map((r) => `<tr><td class="mono">${escapeHtml(r.bpId)}</td><td class="num">${fmtInt(r.n)}</td><td><div class="evo-actions">`
-      + (isAdmin ? `<button class="export-btn" data-push="${escapeHtml(r.bpId)}">推送到市场</button>`
-        + `<button class="export-btn" data-export="${escapeHtml(r.bpId)}">导出补丁</button>` : '<span class="muted">仅管理员可推送</span>')
-      + '</div></td></tr>').join('') + '</tbody></table>';
+      + (isAdmin ? `<button class="export-btn" data-push="${escapeHtml(r.bpId)}" ${pushBlock ? 'disabled' : ''}>推送到市场</button>`
+        + `<button class="export-btn" data-export="${escapeHtml(r.bpId)}" ${pushBlock ? 'disabled' : ''}>导出补丁</button>` : '<span class="muted">仅管理员可推送</span>')
+      + '</div></td></tr>').join('') + '</tbody></table>'
+    + (pushBlock ? `<div class="evo-red-text evo-health-hint">推送暂停：${escapeHtml(pushBlock)}（详见「队列」页执行器体检）</div>` : '');
 }
 
 function renderList(rows, total) {

@@ -36,6 +36,8 @@ const { createEvolveCenterRouter } = require('./lib/evolve-center');
 const { createCancongClient } = require('./lib/center/cancong-client');
 const { createRunner } = require('./lib/center/runner');
 const { createBasket } = require('./lib/center/basket');
+const { createHealth } = require('./lib/center/health');
+const { readPublishedManifest } = require('./lib/update');
 const { seedAdmin, createAuthGate, createAuthRouter } = require('./lib/auth');
 
 function createApp(opts) {
@@ -63,13 +65,16 @@ function createApp(opts) {
   app.use('/v1', createEvolveConfigRouter(dao, { nowFn }));
   // 自进化中心（五页签 + 队列 + 篮子）：回环调同机蚕丛（设计 §5.1；调度器在 require.main 分支挂）
   const cancong = createCancongClient({ baseUrl: opts.cancongUrl, tool: opts.cancongTool });
+  // 执行器体检（§11.2 D2）：版本行比的是本机内网 feed 上已发布的 Linux 包
+  const releasesDir = opts.releasesDir || process.env.OPS_RELEASES_DIR;
+  const health = createHealth(cancong, { dao, nowFn, feedLatest: () => readPublishedManifest(releasesDir) });
   const runner = createRunner(dao, cancong, {
-    nowFn, pollMs: opts.evolvePollMs, centerBlueprintDir: opts.centerBlueprintDir,
+    nowFn, pollMs: opts.evolvePollMs, centerBlueprintDir: opts.centerBlueprintDir, health,
     workDir: opts.evolveWorkDir || process.env.OPS_EVOLVE_WORK_DIR
       || path.join(path.dirname(path.resolve(dbPath)), 'evolve-work'),
   });
   const basket = createBasket(dao, cancong, { nowFn });
-  app.use('/v1', createEvolveCenterRouter(dao, { nowFn, runner, basket }));
+  app.use('/v1', createEvolveCenterRouter(dao, { nowFn, runner, basket, health }));
 
   app.use(express.static(path.join(__dirname, 'public')));
   app.use('/v1', (req, res) => res.status(404).json({ ok: false, error: 'not found' }));
@@ -81,7 +86,7 @@ function createApp(opts) {
     res.status(status).json({ ok: false, error: status >= 500 ? 'server error' : 'bad request' });
   });
 
-  return { app, db, dao, close, runner };
+  return { app, db, dao, close, runner, health };
 }
 
 // 优雅退出：先停调度器 → srv.close 等既有连接收尾后关库退出 →
@@ -98,7 +103,12 @@ function gracefulShutdown(scheduler, srv, close, exitFn, timeoutMs) {
 }
 
 if (require.main === module) {
-  const { app, dao, close, runner } = createApp({});
+  const { app, dao, close, runner, health } = createApp({});
+  // 启动体检一次，结果进日志（中心机配错时运维从 journal 就能看到，不必等到批次失败）
+  health.check({ force: true }).then((h) => {
+    console.log('[evolve-center] 执行器体检：' + h.overall + '（canRun=' + h.canRun + ' canPush=' + h.canPush + '）'
+      + h.items.filter((x) => x.level !== 'ok').map((x) => ' | ' + x.level + ' ' + x.msg).join(''));
+  }).catch((e) => console.log('[evolve-center] 执行器体检出错：' + (e && e.message)));
   // 夜间 job 只在真实进程挂载（测试 require createApp 不带调度器）
   const { startScheduler } = require('./lib/aggregate');
   const nightly = startScheduler(dao, {

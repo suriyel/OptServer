@@ -8,6 +8,14 @@
 
 ### 新增能力
 
+**蓝图自进化中心 · 对接蚕丛独立版（两仓同批，TechDemos 自进化批 5 / 设计 §11）：契约对拍、执行器体检、feed 挂 Linux 包**
+
+- **契约对拍**：本仓经回环调的 13 个蚕丛接口登记在 `lib/center/partner-ops.js`，蚕丛那边对应标成 `x-stability: partner`（只许加可选字段，有门禁）。新测试 `__tests__/cancong-contract.test.js` 读兄弟仓 TechDemos 的 `api-spec/dist/openapi.json`，校验桩响应与本仓请求逐字段落在规格里（迷你校验器 `__tests__/_openapi-mini.js`，零依赖、严格键），并要求本表 ≡ 规格 partner 集合 ≡ 用例实际调用集合；找不到 TechDemos ⇒ skip 并写明「未真对拍」。桩蚕丛从 `evolve-center.test.js` 挪到共享夹具 `__tests__/_evolve-fixtures.js`，契约测试校验的就是单测在用的那份桩。
+- **执行器体检**（`lib/center/health.js`，`GET /v1/evolve/health`、`POST /v1/evolve/health/refresh`）：可达 / 独立版 / 在线契约（13 个 partner 接口齐全）不过 ⇒ 红灯，每日窗口与「立即处理」都不开跑（记一条失败批次，样本不标 batched、不烧重试）；BP_EVOLVE 未关 ⇒ 黄灯照跑；目标市场读不出 ⇒ 推送 / 导出 409 `executor_unhealthy`；起 run 回 503 ⇒ 本批样本原样退回（新 DAO `evoUnbatch`，attempts 不变）、本轮余下蓝图不跑、体检亮「缺工具」。启动时体检一次进日志；「自进化 → 队列」顶部显示状态条，补丁簇页按 `canPush` 置灰推送 / 导出。
+- **feed 挂 Linux 包**：`lib/update.js` 变体改为表，新增可选变体 `linux-x64` / `linux-arm64`（规范名 `cancong-server-<ver>-linux-<arch>.tar.gz`，不派生解压道，启动补派生也跳过它们）；发布自检加「gzip 文件头」「原名架构与变体一致」两道；两个 exe 照旧必需；manifest 只含在场变体。版本发布页 Linux 行标「可选」。体检的版本行据此比对中心机蚕丛版本，落后给出带 sha 校验的升级命令（升级须 root，**不代执行**）。
+- **部署顺序**：先升中心机蚕丛（带 partner 标签的版本），再升 OptServer——反过来体检会判契约不兼容、队列停跑。
+- 测试 169 → 187（`cancong-contract` 2、`evolve-health` 11、`update-linux` 5）；牙齿：桩改回扁平 settings、规格去掉一个 partner 标签、撤体检门、503 改回 `evoReleaseBatch`、补派生不跳过 Linux，各自对应用例变红。
+
 **蓝图自进化中心（两仓同批，TechDemos 自进化批 4）：补丁簇汇总 → 每日合成与审查 → 采纳后推成市场分支**
 
 - 看板新增「自进化」页签，下分 **补丁簇 / 框架问题 / 留出对照 / 队列 / 配置** 五页。管理员可采纳（进篮子）/ 驳回（须写理由）/ 搁置补丁簇，标记框架问题「已修复于 vX」（之后新版本再报会标红回归），改上报白名单 / 留出概率 / 每日批处理时刻 / 目标市场；所有写操作留审计。
