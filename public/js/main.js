@@ -12,10 +12,11 @@ import * as failures from './features/failures.js';
 import * as installs from './features/installs.js';
 import * as fw from './features/fw.js';
 import * as evolve from './features/evolve.js';
+import * as reqflow from './features/reqflow.js';
 import * as release from './features/release.js';
 
 const REFRESH_MS = 60 * 1000;
-const PAGES = { overview, trend, blueprints, users, failures, fw, installs, evolve, release };
+const PAGES = { overview, trend, blueprints, users, failures, fw, installs, evolve, reqflow, release };
 /** @type {Record<string, boolean>} */
 const inited = {};
 let active = '';
@@ -89,6 +90,7 @@ async function initAuthUI() {
 window.addEventListener('hashchange', () => { const h = parseHash(); show(h.tab, h.sub); });
 // 本中心没有共部署自进化（/v1/discovery 的 services.evolve 为 null）⇒ 隐藏页签
 evolve.hasEvolve().then((yes) => { const a = document.getElementById('tab-evolve'); if (a && !yes) a.style.display = 'none'; });
+reqflow.hasReqflow().then((yes) => { const a = document.getElementById('tab-reqflow'); if (a && !yes) a.style.display = 'none'; });
 onRangeChange(() => refreshActive());
 
 setInterval(() => { if (!document.hidden) refreshActive(); }, REFRESH_MS);

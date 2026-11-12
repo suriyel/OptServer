@@ -32,7 +32,7 @@ test('★ v7：v6 老库（含自进化数据）升上来 ⇒ 五表删、fw_iss
   const { db, dao, close } = openDb(p);
   // Windows：先关库再删目录（打开中的 db 文件持锁），合并到同一个 t.after
   t.after(() => { close(); fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); });
-  assert.strictEqual(db.pragma('user_version', { simple: true }), 7);
+  assert.strictEqual(db.pragma('user_version', { simple: true }), 8);
   const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name);
   for (const x of ['evolve_samples', 'evolve_clusters', 'evolve_batches', 'evolve_holdout', 'evolve_audit']) assert.ok(!tables.includes(x), x + ' 应被删');
   assert.ok(tables.includes('fw_issues') && tables.includes('fw_issue_machines'));

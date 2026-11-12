@@ -76,8 +76,8 @@
 
 | type | 触发点 | payload | 聚合去向 |
 |------|--------|---------|---------|
-| `instance_online` | 实例上线 | `{ port, liveSessions }` | 刷 installs.live_sessions；建当日行(计数 0) |
-| `instance_heartbeat` | 定时 5min | `{ liveSessions }` | **不落 events**；hb_seen 去重后 `daily_user.heartbeats+1` |
+| `instance_online` | 实例上线 | `{ port, liveSessions, welinkUid? }` | 刷 installs.live_sessions（与 welink_uid，同心跳）；建当日行(计数 0) |
+| `instance_heartbeat` | 定时 5min | `{ liveSessions, welinkUid? }` | **不落 events**；hb_seen 去重后 `daily_user.heartbeats+1`；`welinkUid`（可选，拼音首字母+工号）写 `installs.welink_uid`，形态不对按没带、绝不拒事件 |
 | `session_start` | 会话开始 | `{ tool, cwdHash }` | `daily_user.sessions+1`、`daily_tool.sessions+1` |
 | `session_end` | 会话结束 | `{ tool, durationMs, exitCode, inputTokens, outputTokens }` | `session_ms += durationMs`；**`daily_user.in/out_tokens += tokens`(token 总量权威)** |
 | `bp_run_start` | 工作流 run 新建 | `{ blueprintId, runId, tool }` | **只落 events 不聚合**(run 计数以终态为准，避免跨日双计) |
@@ -435,6 +435,11 @@ ingest：`ok:false` 计入 `daily_fail`（kind = `update:<reason>`）→ 失败�
 
 `services` 只增键。旧版本服务没有这条路由（门禁先于 404，回 401）——客户端把任何非 200 当「从未拿到」。
 自进化样本（`bp_patch_proposal` / `bp_patch_verdict` / `evolve_run_summary`）不再进本服务，来了按未知类型计数。
+
+## 人员（同机 cancong-evolve 用）`GET /v1/internal/persons`
+
+门禁白名单放行，路由内**只认回环来源**（`127.0.0.1` / `::1`），或带对 `X-Ops-Internal-Token: <OPS_INTERNAL_TOKEN>`（非回环部署时）；否则 403。
+返回全量实例 `{ ok, data: [{ installId, user, host, welinkUid, lastSeen, appVersion }] }`。需求研发看板（TechDemos `docs/REQ-FLOW-DESIGN.md` §8.2）据此注册「所有蚕丛用户」并判在线（`lastSeen` 10 分钟内）。
 
 ## 框架问题 `/v1/fw-issues`
 

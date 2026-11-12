@@ -8,6 +8,13 @@
 
 ### 新增能力
 
+**需求研发看板（与 EvolveServer / TechDemos 同批；TechDemos `docs/REQ-FLOW-DESIGN.md`）**
+
+- 新顶层页签「**需求研发**」：与「自进化」同法经 `/v1/discovery` 跨源挂 cancong-evolve 的 `ui/mount-req.js`；未共部署时隐藏，对端旧版本 / 不可达只在本页签内提示。
+- 心跳 / 上线事件的 payload 可选带 `welinkUid` ⇒ schema **v8** `installs.welink_uid`（纯加列）。**信封 `schemaVersion` 不变、`validate()` 不变**：老客户端照旧，坏 UID 按没带处理、绝不拒事件。
+- 新接口 `GET /v1/internal/persons`（只认回环 / `OPS_INTERNAL_TOKEN`）：cancong-evolve 每 2 分钟拉一次做人员注册与在线判定。
+- 测试 165 → 167（`reqflow-identity.test.js`）；`user_version` 断言 7 → 8。
+
 **蓝图自进化中心拆为独立服务 cancong-evolve（三仓同批；TechDemos `docs/EVOLVE-SERVICE-SPLIT-DESIGN.md`）**
 
 - 自进化中心（补丁簇 / 队列 / 篮子推送 / 留出对照 / 配置 / 中心工作流）整体搬到新仓 **EvolveServer**（`cancong-evolve`:5901，可交给用户自部署）。本服务保留遥测、升级 feed 与**框架问题**。
