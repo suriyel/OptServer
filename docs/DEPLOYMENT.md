@@ -165,13 +165,11 @@ curl "http://localhost:5900/v1/installs"
 蓝图自进化中心（补丁簇 / 队列 / 篮子推送 / 留出对照）2026-11 拆成独立服务 **cancong-evolve**（独立仓 EvolveServer，
 部署见该仓 `docs/DEPLOYMENT.md`；设计 TechDemos `docs/EVOLVE-SERVICE-SPLIT-DESIGN.md`）。中心机的形态：
 
-- 同一台机器：本服务 `:5900` + cancong-evolve `:5901`（`EVOLVE_AUTH=ops` 复用本服务登录）+ 蚕丛独立版 `:5599`（`--env BP_EVOLVE=0`）。
+- 同一台机器：本服务 `:5900` + cancong-evolve `:5901` + 蚕丛独立版 `:5599`（`--env BP_EVOLVE=0`）。**登录各管各的**：cancong-evolve 用自己的账号或工号登录，不借用本服务的登录（原先的 `EVOLVE_AUTH=ops` 2026-11-19 去掉）。
 - 本服务单元设 `Environment=OPS_EVOLVE=:5901`（`deploy/cancong-ops.service` 已带）：`GET /v1/discovery` 据此告诉客户端「自进化在同主机 5901」，
-  看板「自进化」页签据此跨源挂载 cancong-evolve 的页面。不设 ⇒ 页签隐藏、客户端不往这里推自进化样本。
-- **适用边界**：浏览器访问看板与 cancong-evolve 必须同主机名、同为 http（Cookie 按主机共享、SameSite 按协议判同站）。
-- 账号统一在本服务管：本服务管理员 = 自进化管理员，普通用户 = 只读。
+  看板「自进化」「需求研发」页签据此给出打开那个网站的链接（不嵌它的页面）。不设 ⇒ 页签隐藏、客户端不往这里推自进化样本。
 - 「框架问题」仍归本服务（顶层页签，含「已修复于 vX / 回归」）。
-- **两服务同一窗口锁步升级**；升级前备份两份库。
+- 升级前备份库。从借用登录的老版本升上来时两边一起升：老看板的页签会一直提示「不认这个会话」。
 
 ### 8.2 从带自进化中心的旧版本升级（schema v6 → v7）
 

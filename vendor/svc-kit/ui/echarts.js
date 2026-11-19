@@ -5,14 +5,14 @@
 const echarts = /** @type {any} */ (window)['echarts'];
 
 export const EC = {
-  amber: '#f0a830', cyan: '#38d6c4', green: '#54c08a', red: '#e8615f',
-  orange: '#ec8a3c', blue: '#6aa6e0', violet: '#a888e6', muted: '#8b93a1',
+  amber: '#8a5000', cyan: '#0b655e', green: '#27693f', red: '#b3362f',
+  orange: '#974404', blue: '#2c5fa8', violet: '#6d4bb5', muted: '#6a6051',
 };
 
 const MONO = '"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace';
-const AXIS = '#2a2f38';
-const TEXT = '#c9cdd4';
-const DIM = '#6b7280';
+const AXIS = '#d9cfbd';
+const TEXT = '#51483b';
+const DIM = '#63594b';
 
 // 竖向渐变填充（顶亮底暗），营造"发光条"质感
 function grad(hex) {
@@ -29,7 +29,7 @@ function baseOption() {
     grid: { left: 8, right: 24, top: 16, bottom: 8, containLabel: true },
     tooltip: {
       trigger: 'axis', axisPointer: { type: 'shadow' },
-      backgroundColor: 'rgba(20,23,30,0.96)', borderColor: AXIS, borderWidth: 1,
+      backgroundColor: 'rgba(253,251,246,0.97)', borderColor: AXIS, borderWidth: 1,
       textStyle: { color: TEXT, fontFamily: MONO, fontSize: 12 },
       extraCssText: 'backdrop-filter:blur(6px);border-radius:8px;',
     },
@@ -156,11 +156,11 @@ export function heatmap(d) {
       itemWidth: 11, itemHeight: 90,
       textStyle: { color: DIM, fontFamily: MONO, fontSize: 10 },
       // 从"接近底色"渐到 amber：零值几乎隐形，热点自己跳出来
-      inRange: { color: ['#161a21', '#2c2f2c', '#6b5a24', '#b8862a', '#f0a830'] },
+      inRange: { color: ['#f1ebdf', '#ead9b5', '#dcb86a', '#c08a1e', '#734300'] },
     },
     series: [{
       type: 'heatmap', data,
-      itemStyle: { borderColor: '#0c0e12', borderWidth: 1 },
+      itemStyle: { borderColor: '#fdfbf6', borderWidth: 1 },
       emphasis: { itemStyle: { borderColor: EC.amber, borderWidth: 1 } },
       progressive: 0,
     }],
@@ -183,8 +183,8 @@ function timeBase(categories, zoom) {
     o.dataZoom = [
       { type: 'inside', throttle: 50 },
       { type: 'slider', height: 16, bottom: 8, borderColor: AXIS,
-        fillerColor: 'rgba(240,168,48,0.12)', handleStyle: { color: '#f0a830' },
-        dataBackground: { lineStyle: { color: AXIS }, areaStyle: { color: '#1a1e26' } },
+        fillerColor: 'rgba(138,80,0,0.12)', handleStyle: { color: '#8a5000' },
+        dataBackground: { lineStyle: { color: AXIS }, areaStyle: { color: '#efe8da' } },
         textStyle: { color: DIM, fontFamily: MONO, fontSize: 10 } },
     ];
   }

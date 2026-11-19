@@ -6,6 +6,8 @@
 
 ## 未发布
 
+- **「自进化」「需求研发」页签改成链接**（2026-11-19）：自进化服务不再借用本看板的登录（它那边去掉了 `EVOLVE_AUTH=ops`——装在同一台机器上就会不声不响地用上本服务的登录），所以页签不再把它的页面嵌进来，只给一个在新窗口打开自进化网站的链接；到那边用它自己的账号或工号登录。服务发现（`OPS_EVOLVE` → `/v1/discovery`）与人员接口不变。`vendor/svc-kit` 跟着同步（少了 `server/auth/ops.js`）。登录页的回跳参数 `next` 现在没有调用方了，代码留着没动。
+
 ### 新增能力
 
 **需求研发看板（与 EvolveServer / TechDemos 同批；TechDemos `docs/REQ-FLOW-DESIGN.md`）**

@@ -8,7 +8,7 @@
 //     isPublic?(req) → boolean                      // 提供者自己的免登录路径（登录页 / 登录接口）
 //     router?: express.Router }                     // 提供者自带 /auth/* 路由
 //   Account = { username, role:'admin'|'user', via?:'cookie'|'bearer', ... }
-// 门禁与路由层只认 req.account —— 换提供者（local / ops / 未来 SSO）业务代码零改。
+// 门禁与路由层只认 req.account —— 换提供者（local / 工号登录 / 未来 SSO）业务代码零改。
 
 class AuthUnavailable extends Error {
   constructor(msg) { super(msg || 'auth upstream unavailable'); this.code = 'auth_unavailable'; }

@@ -424,7 +424,7 @@ ingest：`ok:false` 计入 `daily_fail`（kind = `update:<reason>`）→ 失败�
 
 ## 服务发现 `GET /v1/discovery`
 
-**免鉴权**（与 `POST /v1/events` 同档）。客户端据此找自进化服务，看板据此决定是否挂「自进化」页签（TechDemos `docs/EVOLVE-SERVICE-SPLIT-DESIGN.md` §4.2）。
+**免鉴权**（与 `POST /v1/events` 同档）。客户端据此找自进化服务，看板据此决定是否显示「自进化」「需求研发」页签（页签里是打开那个网站的链接）（TechDemos `docs/EVOLVE-SERVICE-SPLIT-DESIGN.md` §4.2）。
 由 env `OPS_EVOLVE` 决定：
 
 ```
