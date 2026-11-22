@@ -1,7 +1,7 @@
 'use strict';
 // 需求研发看板的身份面（TechDemos docs/REQ-FLOW-DESIGN.md §8 / §12 兼容条款）：
 // 心跳 / 上线事件可选带 payload.welinkUid ⇒ installs.welink_uid；★ 老格式心跳照常、坏 UID 绝不拒事件；
-// GET /v1/internal/persons 只认回环（或共享密钥），门禁开着也能被同机 evolve 调到。
+// GET /v1/internal/persons 只认回环 / OPS_EVOLVE 主机（或共享密钥），门禁开着也能被 evolve 调到。
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -54,4 +54,45 @@ test('/v1/internal/persons：回环 200（门禁开着也免登录）/ 非回环
   assert.strictEqual(res.status, 200);
   // 门禁照旧挡住看板数据接口
   assert.strictEqual((await fetch(baseUrl + '/v1/installs')).status, 401);
+});
+
+test('/v1/internal/persons：OPS_EVOLVE 指向的主机免密钥放行（IP 与主机名）；别的来源 403 且回包带看到的来源地址', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ops-int-'));
+  const apps = [];
+  t.after(() => { for (const h of apps) h.close(); fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); });
+  let remote = '::ffff:10.0.0.8';
+  // IP 形式：不查 DNS；IPv4 映射的 IPv6 来源也认
+  const a = createApp({ dbPath: path.join(dir, 'a.db'), adminPassword: 'admin123', evolve: 'http://10.0.0.8:5901', internalToken: '',
+    internalRemoteOf: () => remote, internalLookup: () => { throw new Error('IP 不该查 DNS'); } });
+  apps.push(a);
+  const A = (await listenApp(t, a.app)).baseUrl;
+  assert.strictEqual((await fetch(A + '/v1/internal/persons')).status, 200);
+  remote = '10.0.0.9';
+  let res = await fetch(A + '/v1/internal/persons');
+  assert.strictEqual(res.status, 403);
+  assert.deepStrictEqual(await res.json(), { ok: false, error: 'forbidden', remote: '10.0.0.9' });
+  // 主机名形式：解析出的任一地址都认
+  const asked = [];
+  const b = createApp({ dbPath: path.join(dir, 'b.db'), adminPassword: 'admin123', evolve: 'http://evolve.lan:5901', internalToken: '',
+    internalRemoteOf: () => remote, internalLookup: (h, o, cb) => { asked.push(h); cb(null, [{ address: '10.0.0.20', family: 4 }, { address: '10.0.0.9', family: 4 }]); } });
+  apps.push(b);
+  const B = (await listenApp(t, b.app)).baseUrl;
+  assert.strictEqual((await fetch(B + '/v1/internal/persons')).status, 200);
+  assert.deepStrictEqual(asked, ['evolve.lan']);
+});
+
+test('OPS_EVOLVE 主机名：被拒时距上次解析超过 60 s 才重解析（换 IP 能跟上，不会每次被拒都查 DNS）', async () => {
+  const { createEvolveAllow } = require('../lib/internal');
+  let now = 0; let addr = '10.0.0.1'; let n = 0;
+  const allow = createEvolveAllow('http://evolve.lan:5901', { nowFn: () => now, lookup: (h, o, cb) => { n++; cb(null, [{ address: addr }]); } });
+  assert.strictEqual(await allow.allows('10.0.0.1'), true);
+  addr = '10.0.0.2';
+  assert.strictEqual(await allow.allows('10.0.0.2'), false, '60 s 内不重查');
+  assert.strictEqual(n, 1);
+  now = 61000;
+  assert.strictEqual(await allow.allows('10.0.0.2'), true, '过了 60 s 被拒前重查一次');
+  assert.strictEqual(n, 2);
+  // 同主机相对端口 / 没设：不放行任何非回环来源
+  assert.strictEqual(await createEvolveAllow(':5901').allows('10.0.0.1'), false);
+  assert.strictEqual(await createEvolveAllow('').allows('10.0.0.1'), false);
 });

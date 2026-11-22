@@ -436,9 +436,9 @@ ingest：`ok:false` 计入 `daily_fail`（kind = `update:<reason>`）→ 失败�
 `services` 只增键。旧版本服务没有这条路由（门禁先于 404，回 401）——客户端把任何非 200 当「从未拿到」。
 自进化样本（`bp_patch_proposal` / `bp_patch_verdict` / `evolve_run_summary`）不再进本服务，来了按未知类型计数。
 
-## 人员（同机 cancong-evolve 用）`GET /v1/internal/persons`
+## 人员（cancong-evolve 用）`GET /v1/internal/persons`
 
-门禁白名单放行，路由内**只认回环来源**（`127.0.0.1` / `::1`），或带对 `X-Ops-Internal-Token: <OPS_INTERNAL_TOKEN>`（非回环部署时）；否则 403。
+门禁白名单放行，路由内放行三种来源：回环（`127.0.0.1` / `::1`）；`OPS_EVOLVE` 指向的主机（绝对 URL 时；主机名启动时解析，被拒前若距上次解析超过 60 秒会重解析一次）；带对 `X-Ops-Internal-Token: <OPS_INTERNAL_TOKEN>`（可选兜底，自进化机出口地址与 `OPS_EVOLVE` 对不上时用）。否则 `403 { ok:false, error:'forbidden', remote:'<看到的来源地址>' }`。
 返回全量实例 `{ ok, data: [{ installId, user, host, welinkUid, lastSeen, appVersion }] }`。需求研发看板（TechDemos `docs/REQ-FLOW-DESIGN.md` §8.2）据此注册「所有蚕丛用户」并判在线（`lastSeen` 10 分钟内）。
 
 ## 框架问题 `/v1/fw-issues`

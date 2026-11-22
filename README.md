@@ -50,7 +50,8 @@ curl -s -X POST http://localhost:5900/v1/events -H 'content-type: application/js
 | `OPS_SESSION_DAYS` | `7` | 登录会话有效期天数 |
 | `OPS_SECURE_COOKIE` | 关 | 设为 `1` 时会话 Cookie 带 `Secure`（HTTPS 部署用） |
 | `OPS_RELEASES_DIR` | `./releases` | 应用更新发布区目录（磁盘规划见下，约 1.2GB；含派生 tar.gz 后约 ×1.9） |
-| `OPS_EVOLVE` | 不设 | 共部署的自进化服务 cancong-evolve：`:5901`（同主机相对，共部署推荐）/ 绝对 URL（另一台机器，只供客户端上报）/ 不设（没有）。经 `GET /v1/discovery` 告诉客户端与看板（见 `docs/DEPLOYMENT.md` §8.1） |
+| `OPS_EVOLVE` | 不设 | 共部署的自进化服务 cancong-evolve：`:5901`（同主机相对，共部署推荐）/ 绝对 URL（另一台机器：供客户端上报，它指向的主机也是 `/v1/internal/persons` 放行的来源，不用再配 `OPS_INTERNAL_TOKEN`）/ 不设（没有）。经 `GET /v1/discovery` 告诉客户端与看板（见 `docs/DEPLOYMENT.md` §8.1） |
+| `OPS_INTERNAL_TOKEN` | 不设 | 可选兜底：自进化机出口地址与 `OPS_EVOLVE` 对不上（多网卡、NAT）时，作 `/v1/internal/persons` 的共享密钥；自进化那边在「资源 → 人员」页「高级」里填同一个值 |
 | `OPS_7Z_BIN` | 自动探测 | 7z 二进制路径（发布时从便携 exe 派生 tar.gz 解压道用）。探测链：本变量 → `tools/7z/`（win `7zr.exe` / linux `7zz`）→ PATH。**Linux 部署机装 `p7zip-full` 或设本变量**；解析不到时派生失败但**不阻断发布**（manifest 无 archive → `[update] archive 派生失败` 日志与发布页可见；⚠ 新客户端对无 archive 的版本会拒绝升级并报 `feed_no_archive`，务必把 7z 配起来） |
 
 **启动补派生（backfill）**：服务启动时自动检查当前已发布版本，缺 tar.gz 的变体就地从 exe

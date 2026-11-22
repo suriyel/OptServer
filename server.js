@@ -20,7 +20,8 @@
 //   OPS_SECURE_COOKIE   =1 时会话 Cookie 带 Secure（HTTPS 部署用），默认关
 //   OPS_RELEASES_DIR    应用更新发布区目录，默认 ./releases（磁盘规划见 README：3 版本 ≈ 1.2GB）
 //   OPS_EVOLVE          共部署的自进化服务：':5901'（同主机相对）/ 绝对 URL / 不设（=没有），见 lib/discovery.js
-//   OPS_INTERNAL_TOKEN  非回环部署时 cancong-evolve 调 /v1/internal/persons 的共享密钥（同机共部署不用设），见 lib/internal.js
+//                       不同机部署时它指向的主机也是 /v1/internal/persons 放行的来源（自进化那边只填本服务地址即可），见 lib/internal.js
+//   OPS_INTERNAL_TOKEN  可选兜底：自进化机的出口地址与 OPS_EVOLVE 对不上时，才用它作 /v1/internal/persons 的共享密钥
 // 安装包上传是分钟级长请求，listen 后关掉 srv.requestTimeout（见文件末）。
 // 时区不做 env：day 归日依赖部署机 TZ（systemd 单元钉 TZ=Asia/Shanghai）。
 
@@ -60,7 +61,7 @@ function createApp(opts) {
   app.use('/v1', createUpdateRouter({ releasesDir: opts.releasesDir || process.env.OPS_RELEASES_DIR, nowFn }));
   app.use('/v1', createFwRouter(dao));                                 // 框架问题（已修复于 vX / 回归）
   app.use('/v1', createDiscoveryRouter({ evolve: opts.evolve }));     // 服务发现（免鉴权经门禁白名单）
-  app.use('/v1', createInternalRouter(dao, { token: opts.internalToken, remoteOf: opts.internalRemoteOf })); // 同机 evolve 人员同步（只认回环）
+  app.use('/v1', createInternalRouter(dao, { token: opts.internalToken, remoteOf: opts.internalRemoteOf, evolve: opts.evolve, lookup: opts.internalLookup })); // evolve 人员同步（回环 / OPS_EVOLVE 主机 / 共享密钥）
 
   // kit 前端核心（真源 EvolveServer/kit，npm run kit:sync 同步；public/js/core/* 重导出它）
   app.use('/vendor/svc-kit/ui', express.static(path.join(__dirname, 'vendor', 'svc-kit', 'ui')));
