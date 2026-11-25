@@ -36,10 +36,13 @@ test('★ 老格式心跳（无 UID）照常更新 last_seen；带 UID 落库（
   assert.strictEqual(row(db, 'i2').uid, null, '只认心跳 / 上线事件');
 });
 
-test('/v1/internal/persons：回环 200（门禁开着也免登录）/ 非回环 403 / 带对共享密钥 200', async (t) => {
+test('/v1/internal/persons：回环 200（门禁开着也免登录）/ 非回环 403；没有共享密钥：环境里留着 OPS_INTERNAL_TOKEN、请求带上它也 403', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ops-int-'));
   let remote = '127.0.0.1';
-  const h = createApp({ dbPath: path.join(dir, 'o.db'), adminPassword: 'admin123', internalToken: 'sekret', internalRemoteOf: () => remote });
+  const prevTok = process.env.OPS_INTERNAL_TOKEN;
+  process.env.OPS_INTERNAL_TOKEN = 'sekret';
+  t.after(() => { if (prevTok === undefined) delete process.env.OPS_INTERNAL_TOKEN; else process.env.OPS_INTERNAL_TOKEN = prevTok; });
+  const h = createApp({ dbPath: path.join(dir, 'o.db'), adminPassword: 'admin123', internalRemoteOf: () => remote });
   const { baseUrl } = await listenApp(t, h.app);
   t.after(() => { h.close(); fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); });
   ingestBatch(h.dao, [makeEvent({ type: 'instance_heartbeat', installId: 'i9', user: 'zhang', host: 'PC-Z', payload: { welinkUid: 'z00583895' } })], NOW);
@@ -49,20 +52,18 @@ test('/v1/internal/persons：回环 200（门禁开着也免登录）/ 非回环
   assert.deepStrictEqual(body.data.map((x) => [x.installId, x.user, x.host, x.welinkUid]), [['i9', 'zhang', 'PC-Z', 'z00583895']]);
   remote = '10.1.2.3';
   assert.strictEqual((await fetch(baseUrl + '/v1/internal/persons')).status, 403);
-  assert.strictEqual((await fetch(baseUrl + '/v1/internal/persons', { headers: { 'x-ops-internal-token': 'wrong!' } })).status, 403);
-  res = await fetch(baseUrl + '/v1/internal/persons', { headers: { 'x-ops-internal-token': 'sekret' } });
-  assert.strictEqual(res.status, 200);
+  assert.strictEqual((await fetch(baseUrl + '/v1/internal/persons', { headers: { 'x-ops-internal-token': 'sekret' } })).status, 403, '共享密钥已取消');
   // 门禁照旧挡住看板数据接口
   assert.strictEqual((await fetch(baseUrl + '/v1/installs')).status, 401);
 });
 
-test('/v1/internal/persons：OPS_EVOLVE 指向的主机免密钥放行（IP 与主机名）；别的来源 403 且回包带看到的来源地址', async (t) => {
+test('/v1/internal/persons：OPS_EVOLVE 指向的主机放行（IP 与主机名）；别的来源 403 且回包带看到的来源地址', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ops-int-'));
   const apps = [];
   t.after(() => { for (const h of apps) h.close(); fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); });
   let remote = '::ffff:10.0.0.8';
   // IP 形式：不查 DNS；IPv4 映射的 IPv6 来源也认
-  const a = createApp({ dbPath: path.join(dir, 'a.db'), adminPassword: 'admin123', evolve: 'http://10.0.0.8:5901', internalToken: '',
+  const a = createApp({ dbPath: path.join(dir, 'a.db'), adminPassword: 'admin123', evolve: 'http://10.0.0.8:5901',
     internalRemoteOf: () => remote, internalLookup: () => { throw new Error('IP 不该查 DNS'); } });
   apps.push(a);
   const A = (await listenApp(t, a.app)).baseUrl;
@@ -73,7 +74,7 @@ test('/v1/internal/persons：OPS_EVOLVE 指向的主机免密钥放行（IP 与�
   assert.deepStrictEqual(await res.json(), { ok: false, error: 'forbidden', remote: '10.0.0.9' });
   // 主机名形式：解析出的任一地址都认
   const asked = [];
-  const b = createApp({ dbPath: path.join(dir, 'b.db'), adminPassword: 'admin123', evolve: 'http://evolve.lan:5901', internalToken: '',
+  const b = createApp({ dbPath: path.join(dir, 'b.db'), adminPassword: 'admin123', evolve: 'http://evolve.lan:5901',
     internalRemoteOf: () => remote, internalLookup: (h, o, cb) => { asked.push(h); cb(null, [{ address: '10.0.0.20', family: 4 }, { address: '10.0.0.9', family: 4 }]); } });
   apps.push(b);
   const B = (await listenApp(t, b.app)).baseUrl;

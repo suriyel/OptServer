@@ -438,7 +438,7 @@ ingest：`ok:false` 计入 `daily_fail`（kind = `update:<reason>`）→ 失败�
 
 ## 人员（cancong-evolve 用）`GET /v1/internal/persons`
 
-门禁白名单放行，路由内放行三种来源：回环（`127.0.0.1` / `::1`）；`OPS_EVOLVE` 指向的主机（绝对 URL 时；主机名启动时解析，被拒前若距上次解析超过 60 秒会重解析一次）；带对 `X-Ops-Internal-Token: <OPS_INTERNAL_TOKEN>`（可选兜底，自进化机出口地址与 `OPS_EVOLVE` 对不上时用）。否则 `403 { ok:false, error:'forbidden', remote:'<看到的来源地址>' }`。
+门禁白名单放行，路由内只按来源放行两种（没有共享密钥）：回环（`127.0.0.1` / `::1`）；`OPS_EVOLVE` 指向的主机（绝对 URL 时；主机名启动时解析，被拒前若距上次解析超过 60 秒会重解析一次）。否则 `403 { ok:false, error:'forbidden', remote:'<看到的来源地址>' }`。
 返回全量实例 `{ ok, data: [{ installId, user, host, welinkUid, lastSeen, appVersion }] }`。需求研发看板（TechDemos `docs/REQ-FLOW-DESIGN.md` §8.2）据此注册「所有蚕丛用户」并判在线（`lastSeen` 10 分钟内）。
 
 ## 框架问题 `/v1/fw-issues`

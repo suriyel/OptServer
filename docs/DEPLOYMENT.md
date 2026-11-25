@@ -30,8 +30,7 @@ npm start                  # 等价 node server.js，默认 http://localhost:590
 | `OPS_SESSION_DAYS` | `7` | 登录会话有效期天数 |
 | `OPS_SECURE_COOKIE` | 关 | 设为 `1` 时会话 Cookie 带 `Secure`(HTTPS 部署用) |
 | `OPS_RELEASES_DIR` | `./releases` | 应用更新发布区目录，见 §9.1 磁盘规划 |
-| `OPS_EVOLVE` | 不设 | 共部署的自进化服务 cancong-evolve：`:5901`（同主机相对，共部署推荐）/ 绝对 URL（另一台机器：供客户端上报，它指向的主机也是 `/v1/internal/persons` 放行的来源，不用再配 `OPS_INTERNAL_TOKEN`）/ 不设（没有）。经 `GET /v1/discovery` 告诉客户端与看板（见 `docs/DEPLOYMENT.md` §8.1） |
-| `OPS_INTERNAL_TOKEN` | 不设 | 可选兜底：自进化机出口地址与 `OPS_EVOLVE` 对不上（多网卡、NAT）时，作 `/v1/internal/persons` 的共享密钥；自进化那边在「资源 → 人员」页「高级」里填同一个值 |
+| `OPS_EVOLVE` | 不设 | 共部署的自进化服务 cancong-evolve：`:5901`（同主机相对，共部署推荐）/ 绝对 URL（另一台机器：供客户端上报，它指向的主机也是 `/v1/internal/persons` 放行的来源；人员接口只按来源放行，没有共享密钥）/ 不设（没有）。经 `GET /v1/discovery` 告诉客户端与看板（见 `docs/DEPLOYMENT.md` §8.1） |
 | `TZ` | 系统时区 | **必须钉死为 `Asia/Shanghai`**，见下 |
 
 ## 4. 时区(重要)
